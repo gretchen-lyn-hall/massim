@@ -1,0 +1,148 @@
+from .experiment import ExperimentResult
+from ._core import compute_aff, jaccard, braycurtis
+from .utils import PrettyDict
+
+import numpy as np
+import pandas as pd
+
+def delete_diagonal(array):
+    """Remove all diagonal elements of an NxN matrix and return an
+    Nx(N-1) matrix (preseeve size of axis 0)"""
+    return array[~np.eye(len(array), dtype=bool)].reshape(len(array), -1)
+
+
+def affinity_regressions(sim_rows, aff_rows):
+    import scipy.stats as ST
+    coords = np.array([sim_rows, aff_rows])
+    coords.sort()
+    regressions = []
+    for ii in range(coords.shape[1] - 3):
+        try:
+            regressions.append(
+                ST.linregress(coords[0, ii:],
+                              coords[1, ii:]))
+        except ValueError:
+            # We can sometimes run into issues, especially when collecting
+            # permuted stats, where many similarity values are equal.
+            # Ignore if we can regress on at least half the points
+            if ii < coords.shape[1]/2:
+                raise
+    regress = pd.DataFrame(regressions)
+    return regress
+
+def stats_shannon(exp_result: ExperimentResult):
+    mat = exp_result.abundance
+    # get proportions:
+    mat = mat / mat.sum(axis=1)[:, None]
+    presence = mat > 0
+    s_vals = mat[presence]
+    s_vals = -np.log(s_vals) * s_vals
+    mat[presence] = s_vals
+    return pd.Series(mat.sum(axis=1), index=exp_result.sample_info.index)
+    
+
+def affinity_matrix(exp_result: ExperimentResult, dist_method: str = "jaccard"):
+    if dist_method == "jaccard":
+        dist = jaccard(exp_result.abundance.T > 0)
+    elif dist_method == "braycurtis":
+        dist = braycurtis(exp_result.abundance.T)
+    else:
+        raise ValueError(f"Unknown distance method '{dist_method}'")
+    aff = compute_aff(dist)
+    aff_rows = delete_diagonal(aff).mean(axis=1)
+    sim_rows = delete_diagonal(dist).mean(axis=1)
+    return pd.DataFrame(dict(aff=aff_rows, sim=sim_rows),
+                            index = exp_result.sample_info.index)
+
+
+def mosaic_diversity(exp_result: ExperimentResult,
+                     dist_method='jaccard',
+                     affinity=None):
+    if affinity is None:
+        affinity = affinity_matrix(exp_result, dist_method=dist_method)
+    regressions = affinity_regressions(sim_rows=affinity.sim,
+                                       aff_rows=affinity.aff)
+    full_regress = regressions.iloc[0]
+    best_regress = regressions.iloc[regressions.pvalue.argmin()]
+    # In the regressions dataframe, sites are ordered w.r.t. mean sim,
+    # and the slopes are calculated for sites 0-n, 1-n, 2-n, ...
+    # Sites which are 'discontinuous' (bend away from the linear region)
+    # typically occur at low similarity values.
+    # We find the linear region by finding the point with minimum p-value.
+    # Sites to the left of that are then non-linear.
+        
+    best_idx = best_regress.pvalue.argmin()
+    result = PrettyDict()
+    result.mu_all = full_regress.slope
+    result.mu_best = best_regress.slope
+    result.discontinuous_sites = best_idx
+    result.best_regress = best_regress
+    result.full_regress = full_regress
+    result.mean_sim = affinity.sim.mean()
+    return result
+
+
+class BasicStats:
+    def __init__(self, dist_method = "jaccard"):
+        self.dist_method = dist_method    
+
+
+    def __call__(self, exp_result: ExperimentResult):
+        result = PrettyDict()
+        
+        abundance = exp_result.abundance
+        presence = abundance != 0
+        
+        richness = presence.sum(axis=1)
+        result.richness_min = richness.min()
+        result.richness_max = richness.max()
+        result.richness_mean = richness.mean()
+        result.add_spacer()
+        site_abundance = abundance.sum(axis=1)
+        result.set_round(0)
+        result.abundance_min = site_abundance.min()
+        result.abundance_max = site_abundance.max()
+        result.total_species = (presence.sum(axis=0)>0).sum()
+
+        shan = stats_shannon(exp_result)
+        result.add_spacer()
+        result.set_round(3)
+        result.shannon_mean = shan.mean()
+        result.shannon_std = shan.std()
+
+        result.add_spacer()
+        result.set_round(4)
+        bray = braycurtis(abundance.T)
+        bray_rows = delete_diagonal(bray).mean(axis=1)
+
+        result.beta_sim_bray = bray_rows.mean()
+        result.beta_sim_bray_var = bray_rows.var()
+
+        result.add_spacer()
+        jacc = jaccard(abundance.T)
+        jacc_rows = delete_diagonal(jacc).mean(axis=1)
+
+        result.beta_sim_jacc = jacc_rows.mean()
+        result.beta_sim_jacc_var = jacc_rows.var()
+
+        if self.dist_method == 'jaccard':
+            aff = compute_aff(jacc)
+        else:
+            aff = compute_aff(bray)
+
+        aff_rows = delete_diagonal(aff).mean(axis=1)
+        result.add_spacer()
+
+        try:
+            regressions = affinity_regressions(sim_rows=jacc_rows,
+                                               aff_rows=aff_rows)
+            full_regress = regressions.iloc[0]
+            best_regress = regressions.iloc[regressions.pvalue.argmin()]
+
+            result.mosaic_overall = best_regress.slope
+            result.mosaic_linear = full_regress.slope
+            result.affinity_var = aff_rows.var()
+        except ValueError as e:
+            result.mosaic_error = f"Regression error: {e}"
+        return result
+
