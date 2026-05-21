@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(PYBIND11_FINDPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
@@ -8,12 +9,15 @@ find_package(pybind11 CONFIG REQUIRED)
 #add_link_options("$<$<CONFIG:DEBUG>:-fsanitize=address>")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -v -stdlib=libstdc++")
 
+find_package(OpenMP REQUIRED)
+
 file(GLOB SOURCES "src/cpp/*.cpp")
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 add_library(cmassim STATIC ${SOURCES})
+target_include_directories(cmassim PRIVATE OpenMP::OpenMP_CXX_INCLUDE_DIRS)
 set_property(TARGET cmassim PROPERTY CXX_STANDARD 20)
 target_compile_options(cmassim PRIVATE -fexperimental-library)
-target_link_libraries (cmassim Eigen3::Eigen -fexperimental-library)
+target_link_libraries (cmassim Eigen3::Eigen -fexperimental-library OpenMP::OpenMP_CXX)
 
 # Install the dyl
 install(
@@ -22,7 +26,6 @@ install(
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 
-find_package(OpenMP REQUIRED)
 
 find_package (Eigen3 3.3 REQUIRED)
 include_directories( ${EIGEN3_INCLUDE_DIRS} )

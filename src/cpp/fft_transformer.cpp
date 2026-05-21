@@ -1,11 +1,13 @@
 #include "fft_transformer.h"
+#include <ranges>
+#include <cassert>
 
 namespace massim {
 
 // class TransformList
 
-TransformList::TransformList(ArrayRef mass_deltas, ArrayRef weights,
-                             ArrayRef mean_lens, ArrayRef mean_lens_std,
+TransformList::TransformList(ConstArrayRef mass_deltas, ConstArrayRef weights,
+                             ConstArrayRef mean_lens, ConstArrayRef mean_lens_std,
                              bool same_len, bool always_center)
     : m_mass_deltas(mass_deltas), m_weights(weights), m_mean_lens(mean_lens),
       m_mean_lens_std(mean_lens_std), m_dist(weights.begin(), weights.end()),
@@ -48,12 +50,36 @@ std::vector<int> TransformList::pick_lens(double mean_len, size_t size,
   return result;
 }
 
+TransformSelection TransformList::choose_transform(RNG &rng) const {
+  // Pick a random transformation based on frequency
+  int x_id = m_dist(rng.engine);
+  // Pick the total chain length for each non-zero metabolite  
+  auto counts = pick_lens(m_mean_lens[x_id], 1, rng);
+  TransformSelection result;
+
+  // The rest of this is just divvying up the chain lengths between forward
+  // and reverse transformations, depending on the settings.  
+  result.xfrm_id = x_id;
+  result.delta_m = m_mass_deltas[x_id];
+  result.forward_len.resize(1);
+  result.back_len.resize(1);
+  int fwd = std::uniform_int_distribution<>(0, counts[0])(rng.engine);
+  result.forward_len[0] = fwd;
+  result.back_len[0] = counts[0] - fwd;
+  return result;
+}
+
 TransformSelection TransformList::choose_transform(const BoolMatType &presence,
                                                    RNG &rng) const {
+  // Pick a random transformation based on frequency
   int x_id = m_dist(rng.engine);
   int num_vals = presence.count();
+  // Pick the total chain length for each non-zero metabolite  
   auto counts = pick_lens(m_mean_lens[x_id], num_vals, rng);
   TransformSelection result;
+
+  // The rest of this is just divvying up the chain lengths between forward
+  // and reverse transformations, depending on the settings.  
   result.xfrm_id = x_id;
   result.delta_m = m_mass_deltas[x_id];
   result.forward_len.resize(counts.size());
@@ -94,19 +120,21 @@ TransformSelection TransformList::choose_transform(const BoolMatType &presence,
 
 // class TandemTransformer
 
-TandemTransformer::TandemTransformer(ConstMatRef intensity_mat,
-				     ConstArrayRef masses,
-                                     const TransformList &transforms,
-                                     const Distribution &intensity_scale,
-                                     const Distribution &mass_dist,
-                                     double mass_min, double mass_max,
-                                     double min_intensity, double thresh_ppm)
+TandemTransformer::TandemTransformer(
+    ConstMatRef intensity_mat, ConstArrayRef masses,
+    const TransformList &transforms, const Distribution &intensity_scale,
+    const Distribution &mass_dist, double mass_min, double mass_max,
+    double min_intensity, double thresh_ppm, PickMassMode pick_mode,
+    double mass_center, double mass_scale
+    )
     : m_intensity(intensity_mat), m_masses(masses), m_transforms(transforms),
       m_mass_min(mass_min), m_mass_max(mass_max),
       m_min_intensity(min_intensity), m_alignment_thresh(thresh_ppm * 1e-6),
       m_intensity_scale(std::move(intensity_scale.clone())),
-      m_mass_dist(std::move(mass_dist.clone())) {
-
+      m_mass_dist(std::move(mass_dist.clone())), m_pick_mode(pick_mode),
+      m_freq_ctr(mass_center), m_freq_scale(mass_scale)
+      {
+    
   if (intensity_mat.cols() != masses.size()) {
     throw std::invalid_argument(
         "Number of masses does not equal intensity columns.");
@@ -133,14 +161,26 @@ TandemTransformer::TransformerResult::TransformerResult(
     RNG &rng)
     : m_parent(parent), m_targ_masses(target_masses),
       m_targ_peaks(max_new_peaks),
-      m_num_peaks((m_parent.m_intensity > 0).count())
-
+      m_num_peaks((m_parent.m_intensity > 0).count()),
+      m_weighted_peaks(0.0),
+      m_freq_dist(0, 1)
 {
-  // Initialize our sorted mass keys, as well as our indexed
+  // To keep things efficient, we store intensity columns in an unsorted
+  // vector that we can easily append to. In a parallel (sorted) map, we store
+  // the mass of each column, and its index in the vector. Here, we initialize
+  // our sorted mass keys, as well as the initial 
   // intensity columns
-  for (int ii = 0; ii < m_parent.m_intensity.cols(); ++ii) {
-    m_mass_keys.insert(MassKey{m_parent.m_masses[ii], ii});
+  for (size_t ii = 0; ii < m_parent.m_intensity.cols(); ++ii) {
+    int non_zero = (m_parent.m_intensity.col(ii) > 0).count();
+    double weighted = non_zero * weight_peak(m_parent.m_masses[ii]);
+
+    m_mass_keys.insert(std::make_pair(
+			   m_parent.m_masses[ii],
+			   MassInfo{ii, non_zero, weighted}));
     m_i_columns.push_back(m_parent.m_intensity.col(ii));
+
+    // Weighted peaks are used for frequency-dependent choice of metabolites
+    m_weighted_peaks += weighted; 
 
     m_orig_id.push_back(ii);
     std::set<int> col_parent;
@@ -161,11 +201,11 @@ TandemTransformer::TransformerResult::extend_matrix(ConstMatRef src_matrix,
   size_t idx = 0;
   for (const auto &mass_it : m_mass_keys) {
     if (!use_contrib) {
-      result.col(idx) = src_matrix.col(m_orig_id[mass_it.second]);
+	result.col(idx) = src_matrix.col(m_orig_id[mass_it.second.column_id]);
     } else {
       int cnt = 0;
       ArrayType accum = ArrayType::Zero(num_rows());
-      for (auto orig : m_contrib[mass_it.second]) {
+      for (auto orig : m_contrib[mass_it.second.column_id]) {
         accum += src_matrix.col(orig);
         cnt++;
       }
@@ -182,7 +222,15 @@ void TandemTransformer::TransformerResult::extend_chain(double start_mass,
                                                         IntArrayType counter,
                                                         RNG &rng) {
 
+  // This is the method that does the work of taking a source mass, and
+  // adding transformations in a single direction
+  // Given a starting mass/intensity column, it takes the transformation
+  // mass and a list of chain lengths and applies the transformation
+
+  // Here, we *copy* the parent intensity.  
   ArrayType intensity = m_i_columns[start_col_idx];
+  // There is a bit of redundancy here - `counter` contains an entry for
+  // every non-zero metabolite, which we computed previously.   
   BoolMatType presence = intensity > 0;
   double new_mass = start_mass;
   auto orig_id = m_orig_id[start_col_idx];
@@ -190,13 +238,14 @@ void TandemTransformer::TransformerResult::extend_chain(double start_mass,
 
   int idx = 0;
   while ((counter >= 0).any()) {
+      // Keep going until we've reached the max chain length (counter all zero)
     idx += 1;
     presence = counter > 0;
     if (!presence.any()) {
       break;
     }
     counter -= 1;
-    new_mass += mass_delta;
+    new_mass += mass_delta;    
     if (new_mass < m_parent.m_mass_min || new_mass > m_parent.m_mass_max)
       break;
 
@@ -210,7 +259,7 @@ void TandemTransformer::TransformerResult::extend_chain(double start_mass,
       }
     }
 
-    auto mass_it = find_mass(new_mass);
+    MassIter mass_it = find_mass(new_mass);
     // If the transformed mass is not within the threshold of any existing
     // mass, create a new column
     if (mass_it == m_mass_keys.end()) {
@@ -229,31 +278,43 @@ void TandemTransformer::TransformerResult::extend_chain(double start_mass,
       // Insert the new mass and column into our records
       size_t dest_idx = m_i_columns.size();
       m_i_columns.emplace_back(new_intensity);
-      m_mass_keys.insert(MassKey{new_mass, dest_idx});
+      m_mass_keys.insert(MassKey{
+          new_mass,
+          {dest_idx, static_cast<int>(num_new), num_new * weight_peak(new_mass)}
+          });
       m_num_peaks += num_new;
+      m_weighted_peaks +=  num_new * weight_peak(new_mass);
       // Gather stats about the "heritage" of the new column.
       m_orig_id.push_back(orig_id);
       m_contrib.push_back(composition);
 
     } else {
-      // Otherwise update the existing mass column
+      // Otherwise update the existing mass column by adding to it
       m_overlaps++;
       new_mass = mass_it->first;
-      auto dest_idx = mass_it->second;
+      auto dest_idx = mass_it->second.column_id;
       auto &dest_intensity = m_i_columns[dest_idx];
       // Again, we allow the intensity to fall below the min threshold,
       // but don't count those as new peaks.
-      m_num_peaks += (dest_intensity < m_parent.m_min_intensity &&
+      int non_zero = (dest_intensity < m_parent.m_min_intensity &&
                       intensity > m_parent.m_min_intensity)
                          .count();
+      double weight = non_zero * weight_peak(new_mass);
+      m_num_peaks -= mass_it->second.count;
+      m_weighted_peaks -= mass_it->second.weighted;
+      m_num_peaks += non_zero;
+      m_weighted_peaks += weight;
+      mass_it->second.count = non_zero;
+      mass_it->second.weighted = weight;
       dest_intensity += intensity;
       m_contrib[dest_idx].insert(start_col_idx);
     }
   }
 }
 
-void TandemTransformer::TransformerResult::run(RNG &rng) {
-  while (true) {
+TandemTransformer::TransformerResult::MassIter
+TandemTransformer::TransformerResult::pick_mass(RNG &rng) {
+  if (m_parent.m_pick_mode == PICK_BY_MASS) {
     double targ_mass = (*m_parent.m_mass_dist)(rng);
     // Randomly pick an existing mass, and extract the intensity
     // information for it.
@@ -264,13 +325,46 @@ void TandemTransformer::TransformerResult::run(RNG &rng) {
     // is a normal dist). However, it is biased; if there are two very
     // closely spaced masses, it will almost never select the larger of
     // the two
-    auto mass_it = m_mass_keys.lower_bound(MassKey{targ_mass, 0});
+    auto mass_it = m_mass_keys.lower_bound(targ_mass);
     if (mass_it == m_mass_keys.end())
       mass_it--;
+    return mass_it;
+  } else if (m_parent.m_pick_mode == PICK_BY_FREQ) {
+    // Here, we roll our own version of std::discrete_distribution
+    // The sum of all weighted mass counts should equal m_weighted_peaks, so
+    // pick a number between 0 and m_weighted_peaks, and iterate through masses,
+    // summing weights, until we exceed the target.
+
+    // Note, this is currently O(N) in number of masses, and seems to slow
+    // things down.
+    // We can make this O(log(N)), but we need a balanced tree implementation
+    // where we can compute partial sums.    
+    double target_val = m_weighted_peaks * m_freq_dist(rng);
+    double accum = 0.0;
+    auto it = m_mass_keys.begin();
+    while (it != m_mass_keys.end()) {
+      accum += it->second.weighted;
+      if (accum >= target_val)
+        return it;
+      it++;
+    }
+    assert(it != m_mass_keys.end());
+    
+  } else {
+      throw std::domain_error("Unknown enum value for pick mass"); 
+  }    
+  
+}
+
+
+
+void TandemTransformer::TransformerResult::run(RNG &rng) {
+  while (true) {
+    auto mass_it = pick_mass(rng);
     double start_mass = mass_it->first;
     assert(start_mass > m_parent.m_mass_min &&
            start_mass < m_parent.m_mass_max);
-    double start_col = mass_it->second;
+    size_t start_col = mass_it->second.column_id;
     BoolMatType presence = m_i_columns[start_col] > 0;
 
     // Determine which transform to apply, and how many times to apply
@@ -294,4 +388,185 @@ void TandemTransformer::TransformerResult::run(RNG &rng) {
       break;
   }
 }
+
+
+// LALALA
+// class ProfileTransformer
+
+ProfileGenerator::ProfileGenerator(int num_profiles,
+                                   const TransformList &transforms,
+                                   const Distribution &intensity_scale,
+                                   double mass_min, double mass_max,
+                                   double min_intensity, double thresh_ppm,
+                                   PickMassMode pick_mode, double mass_center,
+                                   double mass_scale)
+    : m_profiles(num_profiles), m_transforms(transforms), m_mass_min(mass_min),
+      m_mass_max(mass_max), m_min_intensity(abs(min_intensity)),
+      m_alignment_thresh(thresh_ppm * 1e-6),
+      m_intensity_scale(std::move(intensity_scale.clone())),
+      m_pick_mode(pick_mode), m_freq_ctr(mass_center),
+      m_freq_scale(mass_scale) {
+  for (int ii = 0; ii < m_profiles.size(); ++ii) {
+    m_profiles[ii].profile_id = ii;
+  }    
+}
+  
+
+void ProfileGenerator::extend_chain(MassIter start_component,
+				    double mass_delta,
+				    size_t profile_id,
+				    int counter,
+				    RNG &rng) {
+
+  // This is the method that does the work of taking a source mass, and
+  // adding transformations in a single direction
+  // Given a starting mass/profile row/column, it takes the transformation
+  // mass and the length of the chain to apply
+
+  double new_mass = start_component->first;
+  // We store both the current mass, and the component for the given profile
+// within that mass.  
+  auto cur_mass_it = start_component;
+  auto cur_comp_it = start_component->second.prof_comps.find(profile_id);
+  assert(cur_comp_it != start_component->second.prof_comps.end());
+  
+  while (counter > 0) {
+     auto new_mass_it = m_masses.end();
+      // Keep going until we've reached the max chain length 
+    counter -= 1;
+    new_mass += mass_delta;
+    if (new_mass < m_mass_min || new_mass > m_mass_max) {
+      m_break_mass++;
+      m_break_len += counter+1;
+      break;
+    }
+
+    double &parent_weight = cur_comp_it->second.weight;
+    auto scale = (*m_intensity_scale)(rng);
+    if (abs(scale * parent_weight) < m_min_intensity ||
+        abs((1 - scale) * parent_weight) < m_min_intensity) {
+	m_break_intensity++;
+	m_break_len += counter+1;
+        break;
+    }        
+
+
+    auto new_comp_it = add_component(profile_id, new_mass);
+    // The weight will be zero if this is a new component:
+    if (new_comp_it->second.weight == 0) {
+      new_comp_it->second.weight = scale * parent_weight;
+      parent_weight *= (1 - scale);
+      // Update for next pass through loop.
+      cur_comp_it = new_comp_it;
+    } else {
+      // If the profile already has the current mass, it could be
+      // either that we've walked this chain before, or arrived at
+      // it through a different set of transforms.
+      // In either case, we'll skip it.      
+    }      
+
+
+    
+  }              
+}
+
+
+ProfileGenerator::MassIter
+ProfileGenerator::pick_component(ProfileRecord &profile, RNG &rng) {
+    static UniformDistribution freq_dist(0,1);
+    double targ_mass;
+  if (m_pick_mode == PICK_BY_FREQ) {
+      size_t idx = rng() % profile.size();
+    targ_mass = profile[idx].mass;
+    
+  } else if (m_pick_mode == PICK_BY_MASS) {
+    // Here, we roll our own version of std::discrete_distribution
+    // The sum of all weighted mass counts should equal m_weighted_peaks, so
+    // pick a number between 0 and m_weighted_peaks, and iterate through masses,
+    // summing weights, until we exceed the target.
+
+    // Note, this is currently O(N) in number of masses, and seems to slow
+    // things down.
+    // We can make this O(log(N)), but we need a balanced tree implementation
+    // where we can compute partial sums.    
+    double target_val = profile.prob_total * freq_dist(rng);
+    double accum = 0.0;
+    for (const auto &p_it: profile) {
+      accum += p_it.prob_mass;
+      if (accum >= target_val) {
+        targ_mass = p_it.mass;
+        break;
+      }        
+    }
+  } else if (m_pick_mode == PICK_BY_WEIGHT) {
+      // This is hacky, but I'm sick of restructuring these data structures
+    double target_val = profile.weight_total * freq_dist(rng);
+      double accum = 0.0;
+      for (const auto &p_it : profile) {
+        auto m_it = m_masses.find(p_it.mass);
+        assert(m_it != m_masses.end());
+        auto c_it = m_it->second.prof_comps.find(profile.profile_id);
+        assert(c_it != m_it->second.prof_comps.end());        
+	accum += c_it->second.weight;
+	  if (accum >= target_val) {
+	      targ_mass = p_it.mass;
+	      break;
+      }        
+    }
+
+      
+
+  } else {
+      throw std::domain_error("Unknown enum value for pick mass"); 
+  }
+  assert(targ_mass != 0.0);
+  auto result = m_masses.find(targ_mass);
+  // If a mass is in a profile, it had damn well better be in the mass list
+  assert(result != m_masses.end());
+  return result;
+  
+}
+
+
+
+void ProfileGenerator::apply_transforms(RNG &rng, size_t targ_components,
+    size_t targ_masses) {
+  // Here, we randomly pick a profile
+  std::uniform_int_distribution<> profile_picker(0, m_profiles.size() - 1);
+  recompute_weights();
+
+    while (true) {
+	size_t profile_id = profile_picker(rng.engine);
+        ProfileRecord &cur_profile = m_profiles[profile_id];
+        if (cur_profile.size() == 0)
+	    continue;
+	auto comp_it = pick_component(cur_profile, rng);
+    // Determine which transform to apply, and how many times to apply
+    // it
+	auto xfrm_dat = m_transforms.choose_transform(rng);
+
+    // Apply the transform in either direction
+
+    extend_chain(comp_it, xfrm_dat.delta_m, profile_id, xfrm_dat.forward_len[0], rng);
+    extend_chain(comp_it, -xfrm_dat.delta_m, profile_id, xfrm_dat.back_len[0], rng);
+    if (targ_masses > 0 && m_masses.size() >= targ_masses)
+      break;
+    if (targ_components > 0 && m_num_components >= targ_components)
+      break;
+    if (targ_components == 0 && targ_masses == 0)
+	break;
+          
+    
+    }        
+}
+
+
+
+
+
+
+
+
+
+
 } // namespace massim

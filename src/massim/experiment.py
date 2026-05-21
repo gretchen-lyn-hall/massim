@@ -1003,7 +1003,7 @@ class Experiment:
             try:
                 exec_stack : list[Experiment._ExecItem] = [exec_item]
 
-            while exec_stack:
+                while exec_stack:
                     # Run the next stage
                     cur_node, cur_input, cur_count, run_idx = exec_stack.pop()
                     if  isinstance(cur_node.stage, RepeatingStage):

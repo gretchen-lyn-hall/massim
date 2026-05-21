@@ -2,7 +2,7 @@
 #include <stdexcept>
 #include <algorithm>
 
-
+#pragma 
 namespace massim {
 
 MatType compute_aff(const Eigen::Ref<const MatType>& sim) {
@@ -12,7 +12,8 @@ MatType compute_aff(const Eigen::Ref<const MatType>& sim) {
   }
   const int max_rank_sum = (N-2) * (N-1) / 2;
   MatType result(N,N);
-  
+
+#pragma omp parallel for
   for (int ii=0; ii<N; ++ii) {
     result(ii,ii) = 0.5;
     for (int jj=ii+1; jj<N; ++jj) {
@@ -41,6 +42,7 @@ MatType jaccard(const Eigen::Ref<const BoolMatType>& presence) {
   int M = presence.cols();
   MatType result(M, M);
   IntArrayType total = presence.cast<int>().colwise().sum();
+#pragma omp parallel for
   for (int ii=0; ii < M; ++ii) {
     result(ii,ii) = 1.0;
     for (int jj=ii+1; jj< M; ++jj) {

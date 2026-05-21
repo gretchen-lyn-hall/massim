@@ -11,13 +11,22 @@ namespace massim
 			const ArrayType& valid_masses);
 
 
+  typedef std::tuple<double, int, int> diffrec_t;
+  typedef std::vector<diffrec_t> difflist_t;
+
+  // Given an array of masses, find all (positive) pairwise masses, sort them,
+  // and return the sorted list and indices of the masses  
+  difflist_t diffsort(const ArrayType &masses);
+  difflist_t simplediffsort(const ArrayType &masses);
+  
 
 // Given a (sorted) list of compound masses and a list of transformation mass
 // deltas, find all potential transformations.
-// The output is a vector of <transform_idxs, src_idx, dst_idx>  
-std::vector<std::tuple<int, int, int>> find_transforms(const VecType& masses,
-	const VecType& xfrm_masses,
-	double err_abs);
+// The output is a vector of <transform_idxs, src_idx, dst_idx>
+  std::vector<std::tuple<int, int, int>>
+  find_transforms(const VecType &masses, const VecType &xfrm_masses,
+                  double err_abs,
+		  bool allow_overlap=true);
 
 
 

@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <iostream>
 
 namespace massim {
 
@@ -17,11 +18,78 @@ int adjust_masses(Eigen::Ref<ArrayType> masses, const ArrayType &valid_masses) {
   return badcount;
 }
 
+
+typedef std::pair<double, size_t> heapent_t;
+
 typedef std::tuple<double, int, int> diffrec_t;
+typedef std::vector<diffrec_t> difflist_t;
+
+    
+difflist_t diffsort(const ArrayType &masses) {
+  int N2 = masses.size() * (masses.size() - 1) / 2;
+  std::vector<ArrayType> rows;
+  std::priority_queue<heapent_t, std::vector<heapent_t>, std::greater<heapent_t>> heap;  
+  difflist_t result(N2);
+  VecType last_row = masses;
+  VecType next_row;
+  rows.reserve(masses.size() - 1);
+      
+  if (!std::is_sorted(masses.begin(), masses.end())) {
+    throw std::invalid_argument("Input masses must be pre-sorted");
+  }
+
+
+  // Prepare the rows. We have to be careful not to overwrite a row while
+  // performing calculations.  
+  while (last_row.size() > 1) {
+    
+      next_row = last_row.tail(last_row.size()-1).array() - last_row(0);
+      rows.push_back(next_row);
+      last_row = next_row;
+  }
+  // Position along each row
+  std::vector<size_t> indices(rows.size(), 0);
+
+  // Initialize the heap
+  for (int ii=0; ii<rows.size(); ++ii) {
+      heap.push({rows[ii](0), ii});
+  }
+
+  size_t ctr = 0;
+
+  while (!heap.empty()) {
+    auto [diff, row_id] = heap.top();
+    heap.pop();
+    auto &idx = indices[row_id];
+    result[ctr] = {diff, row_id, idx};
+    if (++idx < rows[row_id].size()) {
+	heap.push({rows[row_id][idx], row_id});
+    }
+    ctr += 1;
+  }    
+  
+  return result;
+}
+
+difflist_t simplediffsort(const ArrayType &masses) {
+    int N2 = masses.size() * (masses.size() - 1) / 2;
+    std::vector<diffrec_t> diffs;
+    diffs.reserve(N2);
+
+    for (int ii = 0; ii < masses.size() - 1; ++ii) {
+	for (int jj = ii + 1; jj < masses.size(); ++jj) {
+	    double diff = masses.coeff(jj) - masses.coeff(ii);
+		diffs.push_back({diff, ii, jj});
+        }
+    }
+    std::sort(std::execution::par_unseq, diffs.begin(), diffs.end());
+    return diffs;
+}    
+
 
 std::vector<std::tuple<int, int, int>>
 find_transforms(const VecType &masses, const VecType &xfrm_masses,
-                double err_abs) {
+                double err_abs, bool allow_overlap) {
   if (!std::is_sorted(masses.begin(), masses.end())) {
     throw std::invalid_argument("Input masses must be pre-sorted");
   }
@@ -46,15 +114,16 @@ find_transforms(const VecType &masses, const VecType &xfrm_masses,
   std::sort(std::execution::par_unseq, diffs.begin(), diffs.end());
 
   std::vector<std::tuple<int, int, int>> result;
-  auto scan_it = diffs.begin();
+  auto scan_start = diffs.begin();
 
   for (int xfrm_id = 0; xfrm_id < xfrm_masses.size(); ++xfrm_id) {
     // Find the range of differences that fall within `err_abs` of their
     // transform mass.
     double delta = xfrm_masses[xfrm_id];
-    scan_it = std::lower_bound(scan_it, diffs.end(),
-                               diffrec_t{delta - err_abs, 0, 0});
-
+    auto scan_it = std::lower_bound(scan_start, diffs.end(),
+				    diffrec_t{delta - err_abs, 0, 0});
+    scan_start = scan_it;
+    
     // Once we've found the start, scan forward until the transform no longer
     // matches
 
@@ -63,6 +132,11 @@ find_transforms(const VecType &masses, const VecType &xfrm_masses,
                                        std::get<2>(*scan_it)));
       ++scan_it;
     }
+    if (!allow_overlap) {
+	// Start the next scan at the end of this one
+	scan_start = scan_it;
+    }          
+    
   }
 
   return result;

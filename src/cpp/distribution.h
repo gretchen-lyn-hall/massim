@@ -170,6 +170,37 @@ protected:
   }
 };
 
+class BetaDistribution : public Distribution {
+  mutable std::gamma_distribution<double> m_X;
+  mutable std::gamma_distribution<double> m_Y;
+public:
+    BetaDistribution(double a, double b)
+      : m_X(a),
+	m_Y(b)
+  {}
+
+
+    std::string name() const {
+     return "BetaDistribution";
+   }
+
+   std::vector<double> params() const {
+     return {m_X.param().alpha(), m_Y.param().alpha()};
+   }
+
+   std::unique_ptr<Distribution> clone() const {
+     return std::make_unique<BetaDistribution>(*this);
+   }
+
+protected:
+  double sample_one(RNG &rng) const {
+    double X = m_X(rng.engine);
+    return X / (X + m_Y(rng.engine));
+  }
+};
+
+
+
 class LognormalDistribution : public Distribution {
   mutable std::lognormal_distribution<double> m_dist;
 public:
