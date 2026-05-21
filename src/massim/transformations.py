@@ -5,7 +5,7 @@ from .distributions import (DISTRIBUTIONS,
                             LogRandomDistribution,
                             NormalDistribution)
 
-from ._core import TransformList, TandemTransformer, gen_dist
+from ._core import TransformList, TandemTransformer, gen_dist, PickMassMode
 from ._core import RNG as cRNG
 
 import numpy as np
@@ -48,6 +48,9 @@ class TransformStage(Stage):
                  mass_max: float = 1200,
                  min_intensity: float = 1e4,
                  thresh_ppm: float = 1.0,
+                 pick_mass: PickMassMode = PickMassMode.PICK_BY_MASS,
+                 mass_center: float = 600.0,
+                 mass_scale: float = 50.0,
                  **kwargs
                  ):
         super().__init__(**kwargs)
@@ -56,12 +59,16 @@ class TransformStage(Stage):
         self.mass_max = mass_max
         self.min_intensity = min_intensity
         self.thresh_ppm = thresh_ppm
+        self.pick_mass = pick_mass
+        self.mass_center = mass_center
+        self.mass_scale = mass_scale
 
     def execute(self, input: StageData,
                 rng: np.random.Generator,
                 state: Stage.State) -> PipelineData:
         intensity_scale = state.intensity_scale.to_cdist()
-        mass_dist = gen_dist("normal", [600, 250])
+        mass_dist = gen_dist("normal", [525, 190])
+        
         # Seed our c++ RNG from our python RNG.
         c_rng = cRNG(rng.integers(2**30))
         transformer = TandemTransformer(input.abundance,
@@ -72,7 +79,11 @@ class TransformStage(Stage):
                                         self.mass_min,
                                         self.mass_max,
                                         self.min_intensity,
-                                        self.thresh_ppm)
+                                        self.thresh_ppm,
+                                        self.pick_mass,
+                                        self.mass_center,
+                                        self.mass_scale
+                                        )
         
         xresult = transformer.apply_transforms(c_rng,
                                                target_masses=state.target_masses)

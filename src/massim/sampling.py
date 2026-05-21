@@ -375,6 +375,8 @@ class GridSampler(SamplerConfig):
         return self.grid_size * (N // self.grid_size + 1)
         
     def _sample(self, N, rng=None):
+        if N is None:
+            N = self.grid_size
         if N % self.grid_size != 0:
             raise ValueError(f"N ({N}) is not a multiple of grid size "
                              f"({self.grid_size}).")
@@ -385,6 +387,8 @@ class GridSampler(SamplerConfig):
         return result
 
     def _info(self, N, rng=None):
+        if N is None:
+            N = self.grid_size
         if N % self.grid_size != 0:
             raise ValueError(f"N ({N}) is not a multiple of grid size "
                              f"({self.grid_size}).")

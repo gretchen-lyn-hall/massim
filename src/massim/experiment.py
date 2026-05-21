@@ -6,11 +6,14 @@ from collections import defaultdict, namedtuple
 from ctypes import ArgumentError
 from typing import NamedTuple, DefaultDict, Iterable, TYPE_CHECKING, Any
 import dataclasses as dc
+import pdb
 
 from .distributions import RNG, Distribution, ConstantDistribution, DISTRIBUTIONS
 
 import numpy as np
 import pandas as pd
+
+CEASE_VALUE = "CEASE"
 
 class Message:
     def __init__(self, target: str, name: str, _value=None, /,  **kwargs):
@@ -70,12 +73,21 @@ class ExperimentResult:
     def __init__(self,
                  data: StageData,
                  output_name: str,
-                 output_index: dict[str, int]):
+                 output_index: dict[str, int],
+                 messages: dict = None,
+                 states: dict = None):
         self._output_name = output_name
         self._output_index = output_index
         self._data = data
         self._sub_results = {}
+        if messages is None:
+            messages = []
+        self._messages = messages
+        if states is None:
+            states = {}
+        self._states = states
 
+        
     @property
     def name(self) -> str:
         return self._output_name
@@ -111,6 +123,12 @@ class ExperimentResult:
                             index=self._data.sample_info.index,
                             columns=self._data.species_info.index)
     @property
+    def dfmass(self) -> pd.DataFrame:
+        return pd.DataFrame(self._data.abundance,
+                            index=self._data.sample_info.index,
+                            columns=self._data.species_info.mass)
+
+    @property
     def abundance(self) -> np.ndarray:
         return self._data.abundance
     
@@ -135,6 +153,7 @@ class PipelineData:
     data: StageData
     messages: list[Message]
     rng: np.random.Generator
+    states: dict = dc.field(default_factory=dict)
 
     def copy(self, **kwargs):
         """Return a copy of the data, replacing any field with the values
@@ -321,7 +340,9 @@ class Stage(ABC):
         return self.State(self)
 
     def run(self,
-            input: PipelineData
+            input: PipelineData,
+            as_name: str,
+            debug=False,
             ) -> PipelineData :
 
         has_fields = input.data.has_fields()
@@ -340,8 +361,13 @@ class Stage(ABC):
             rng = np.random.default_rng(self.stage_seed)
         else:
             rng = input.rng
-            
-        result = self.execute(input.data, rng, state)
+        if debug:
+            result = pdb.runcall(self.execute, input.data, rng, state)
+        else:
+            result = self.execute(input.data, rng, state)
+        out_states = input.states.copy()
+        out_states[as_name] = state
+        result = result.copy(states=out_states)
         if self.stage_seed is not None:
             result = result.copy(rng=input.rng)
         return result
@@ -462,7 +488,9 @@ class ComboStage(Stage):
             setattr(self, name, new_stage)
 
     def run(self,
-            input: PipelineData
+            input: PipelineData,
+            as_name: str,
+            debug=False
             ) -> PipelineData :
         start_rng = input.rng
         if self.stage_seed is not None:
@@ -487,7 +515,9 @@ class ComboStage(Stage):
 
         # Then, we just execute the mini pipeline. This regurgitates much
         # of the mechanics of the base Stage.run method.
+        out_states = input.states.copy()
         for stage, state in zip(self.stages, states):
+            out_states[as_name + "." + stage.default_name()] = state
             has_fields = input.data.has_fields()
             missing = set(stage.__class__.REQUIRES).difference(has_fields)
             if len(missing) > 0:
@@ -495,9 +525,13 @@ class ComboStage(Stage):
                                  f"{', '.join(missing)} in input.")
 
             
-            input = stage.execute(input.data, input.rng, state)
+            if debug:
+                input = pdb.runcall(stage.execute, input.data, input.rng, state)
+            else:
+                input = stage.execute(input.data, input.rng, state)
         if self.stage_seed is not None:
             input = input.copy(rng=start_rng)
+        
         return input
 
 
@@ -626,6 +660,7 @@ class Experiment:
             self.run_count = 0
             self.output_name = self.name
             self.output_result = enable_output
+            self.debug = False
             if enable_output:
                 if isinstance(enable_output, str):
                     self.output_name = enable_output
@@ -684,11 +719,74 @@ class Experiment:
                                      node_name=self.name
                                      ))
             try:
-                out_result = self.stage.run(in_result.copy(messages=node_msgs))
+                out_result = self.stage.run(in_result.copy(messages=node_msgs),
+                                            self.name,
+                                            debug=self.debug)
             except Exception as e:
                 e.add_note(f"Encountered while in stage {self.name}")
                 raise
-            return out_result.copy(messages = other_msgs + out_result.messages)
+            return out_result.copy(messages = node_msgs + other_msgs + out_result.messages)
+
+        def build_out_tree(self, tree: Experiment.OutTree) -> None:
+            for child in self.consumers:
+                tree.add_node(self.name, child.name)
+                child.build_out_tree(tree)
+
+    class OutTreeNode:
+        def __init__(self, name: str):
+            self._name = name
+            self._children: dict[str, Experiment.OutTreeNode] = {}
+            self._outputs: list[ExperimentResult] = []
+
+        def __getitem__(self, idx: int) -> ExperimentResult:
+            return self._outputs[idx]
+
+        def _add_child(self, name: str) -> Experiment.OutTreeNode:
+            if name in self._children:
+                raise ValueError(f"Child '{name}' already exists.")
+            result = Experiment.OutTreeNode(name)
+            self._children[name] = result
+            setattr(self, name, result)
+            return result
+
+    class OutTree:
+        def __init__(self, root_name: str):
+            self.root = Experiment.OutTreeNode(root_name)
+            self.nodes = {root_name: self.root}
+            pass
+
+        def add_node(self, from_node: str, to_node: str):
+            assert from_node in self.nodes
+            assert to_node not in self.nodes
+            node = self.nodes[from_node]
+            self.nodes[to_node] = node._add_child(to_node)
+
+        def add_output(self,
+                       result: ExperimentResult):
+            assert result.name in self.nodes
+            self.nodes[result.name]._outputs.append(result)
+
+        def prune(self):
+            from types import SimpleNamespace
+            result = Experiment.OutTreeNode("")
+
+            
+
+
+            def prune_node(out_node, at_node):
+                next_out = out_node
+                if len(at_node._outputs) > 0:
+                    # Add a level to the result
+                    out_child = out_node._add_child(at_node._name)
+                    out_child._outputs = at_node._outputs
+                    next_out = out_child
+                if at_node._children:
+                    for child_name, child in at_node._children.items():
+                        prune_node(next_out, child)
+                            
+            prune_node(result, self.root)
+            return result
+            
 
     def __init__(self, name: str | None, output_filter: Callable|None = None):
         self.root: Experiment.Node | None = None
@@ -698,6 +796,14 @@ class Experiment:
         self.all_nodes: dict[str, Experiment.Node] = {}
         self.output_filter = output_filter
 
+
+    def _build_out_tree(self) -> Experiment.OutTree:
+        if self.root is None:
+            raise ValueError("No stages have been added to experiment.")
+        tree = Experiment.OutTree(self.root.name)
+        self.root.build_out_tree(tree)
+        return tree
+    
     def set_output_filter(self, output_filter: Callable|None):
         self.output_filter = output_filter
 
@@ -743,6 +849,9 @@ class Experiment:
 
     def __getitem__(self, node_name):
         return self.all_nodes[node_name]
+
+    def debug_stage(self, node_name, enable=True):
+        self.all_nodes[node_name].debug = enable
 
     def check_name(self, stage: Stage, name: str | None) -> str:
         if name is None:
@@ -813,8 +922,147 @@ class Experiment:
 
         lines.append("]")
         return "\n".join(lines)
-                
-                 
+
+    @staticmethod
+    def _push_exec(exec_stack: list[Experiment._ExecItem],
+                   stage_node: Experiment.Node,
+                   data: PipelineData,
+                   count: int,
+                   run_index: dict[str, int]):
+        if isinstance(stage_node.stage, RepeatingStage):
+            run_index = run_index.copy()
+            run_index[stage_node.name] = count
+        exec_stack.append(Experiment._ExecItem(stage_node,
+                                               data,
+                                               count,
+                                               run_index))
+
+    def _handle_stack_item(self,
+                       exec_stack: list[Experiment._ExecItem],
+                       cur_item: Experiment._ExecItem,
+                       next_result: PipelineData,
+                       dry_run: bool = False):
+        """
+        Once a stack item has been executed (yielding `next_result`)
+        this method updates the stack with the next stage(s) to run.
+        
+        """
+        # Parse message results; either they are messages to the
+        # run (target == "__exec__") or they are stored for downstream
+        # use.
+        cur_node, cur_input, cur_count, run_idx = cur_item
+        result = None
+
+        exec_msgs = next_result.target_messages("__exec__", remove=True)
+        for msg in exec_msgs:
+            if msg.target == "__exec__":
+                if msg.name == "repeat":
+                    if msg.value:
+                        # For repeating stages, replace the node and its input
+                        # on the stack
+                        Experiment._push_exec(exec_stack,
+                                              cur_node,
+                                              cur_input,
+                                              cur_count+1,
+                                              run_idx)
+        # Check for messages with unknown targets
+        for msg in next_result.messages:
+            if msg.target not in self.all_nodes and msg.target != "*":
+                raise ValueError(f"Message with unknown target "
+                                 f"'{msg.target}' generated by stage "
+                                 f"'{cur_node.name}'.")
+
+        if cur_node.output_result or len(cur_node.consumers) == 0:
+            if dry_run:
+                 result = run_idx
+            else:
+                # Yield result
+                out_data = next_result.data
+                if self.output_filter:
+                    out_data = self.output_filter(out_data)
+                out_result = ExperimentResult(out_data,
+                                              cur_node.output_name,
+                                              run_idx,
+                                              cur_input.messages[:],
+                                              next_result.states
+                                              )
+                result = out_result
+        for next_node in cur_node.consumers:
+            Experiment._push_exec(exec_stack,
+                                  next_node,
+                                  next_result,
+                                  0,
+                                  run_idx)
+        return result
+
+        
+    
+    @staticmethod
+    def _mp_worker(exp, exec_q, out_q, fork_limit):
+        for exec_item in iter(exec_q.get, CEASE_VALUE):
+            try:
+                exec_stack : list[Experiment._ExecItem] = [exec_item]
+
+            while exec_stack:
+                    # Run the next stage
+                    cur_node, cur_input, cur_count, run_idx = exec_stack.pop()
+                    if  isinstance(cur_node.stage, RepeatingStage):
+                        pass
+                    else:
+                        next_result = cur_node.run(cur_input,
+                                                   cur_count)
+
+                    # Parse message results; either they are messages to the
+                    # run (target == "__exec__") or they are stored for downstream
+                    # use.
+                    exec_msgs = next_result.target_messages("__exec__", remove=True)
+                    for msg in exec_msgs:
+                        if msg.target == "__exec__":
+                            if msg.name == "repeat":
+                                if msg.value:
+                                    # For repeating stages, replace the node and its input
+                                    # on the stack
+                                    Experiment._push_exec(exec_stack,
+                                                          cur_node,
+                                                          cur_input,
+                                                          cur_count+1,
+                                                          run_idx)
+                    # Check for messages with unknown targets
+                    for msg in next_result.messages:
+                        if msg.target not in self.all_nodes and msg.target != "*":
+                            raise ValueError(f"Message with unknown target "
+                                             f"'{msg.target}' generated by stage "
+                                             f"'{cur_node.name}'.")
+
+                    if cur_node.output_result or len(cur_node.consumers) == 0:
+                        if dry_run:
+                             yield run_idx
+                        else:
+                            # Yield result
+                            out_data = next_result.data
+                            if self.output_filter:
+                                out_data = self.output_filter(out_data)
+                            out_result = ExperimentResult(out_data,
+                                                          cur_node.output_name,
+                                                          run_idx,
+                                                          cur_input.messages[:],
+                                                          next_result.states
+                                                          )
+                            yield out_result
+                    for next_node in cur_node.consumers:
+                        Experiment._push_exec(exec_stack,
+                                              next_node,
+                                              next_result,
+                                              0,
+                                              run_idx)
+
+
+            except Exception as e:
+                print(e)
+            finally:
+                exec_q.task_done()
+
+
         
     def run(self,
             messages=None,
@@ -844,17 +1092,6 @@ class Experiment:
         self._prepare()
         
         exec_stack: list[Experiment._ExecItem] = []
-        def push_exec(stage_node: Experiment.Node,
-                      data: PipelineData,
-                      count: int,
-                      run_index: dict[str, int]):
-            if isinstance(stage_node.stage, RepeatingStage):
-                run_index = run_index.copy()
-                run_index[stage_node.name] = count
-            exec_stack.append(Experiment._ExecItem(stage_node,
-                                                   data,
-                                                   count,
-                                                   run_index))
 
         if messages is None:
             messages = []
@@ -868,7 +1105,7 @@ class Experiment:
         init_result = PipelineData(StageData(), messages=messages, rng = rng)
 
         # Prime the traversal with the root node and initial result.
-        push_exec(self.root, init_result, 0, {})
+        Experiment._push_exec(exec_stack, self.root, init_result, 0, {})
 
         while exec_stack:
             step_count += 1
@@ -880,6 +1117,30 @@ class Experiment:
             else:
                 next_result = cur_input
 
+            """
+            Notes - for multiprocessing, spawn workers, each with their
+            own exec_stack.
+            One worker will get the root node, and proceed as normal until
+            they get to a repeating node.
+            Once they get to a repeating node, they'll distribute the exec item
+            for each repetition on the exec_queue. (maybe except the first, which
+            it can continue to handle?) We can use a JoinQueue, so that we know
+            when all tasks are done.
+
+            We'll have a separate output queue which will post the outputs.
+            For a 'map' like function (that computes stats on the output using
+            a user-provided func), we can either:
+            - Compute that as part of mp execution.
+            - Have a separate work queue item that takes an output and applies
+              map_func to it.
+
+            One question - we probably want to not fork at *every* repeating
+            stage. Some of the latter (say noise) stages are relatively quick.
+            
+
+            """
+
+                
             # Parse message results; either they are messages to the
             # run (target == "__exec__") or they are stored for downstream
             # use.
@@ -890,7 +1151,11 @@ class Experiment:
                         if msg.value:
                             # For repeating stages, replace the node and its input
                             # on the stack
-                            push_exec(cur_node, cur_input, cur_count+1, run_idx)
+                            Experiment._push_exec(exec_stack,
+                                                  cur_node,
+                                                  cur_input,
+                                                  cur_count+1,
+                                                  run_idx)
             # Check for messages with unknown targets
             for msg in next_result.messages:
                 if msg.target not in self.all_nodes and msg.target != "*":
@@ -907,11 +1172,18 @@ class Experiment:
                     if self.output_filter:
                         out_data = self.output_filter(out_data)
                     out_result = ExperimentResult(out_data,
-                                                cur_node.output_name,
-                                                run_idx)
+                                                  cur_node.output_name,
+                                                  run_idx,
+                                                  cur_input.messages[:],
+                                                  next_result.states
+                                                  )
                     yield out_result
             for next_node in cur_node.consumers:
-                push_exec(next_node, next_result, 0, run_idx)
+                Experiment._push_exec(exec_stack,
+                                      next_node,
+                                      next_result,
+                                      0,
+                                      run_idx)
 
     def count_iters(self, messages=None):
         return  len(list(self.run(messages=messages,
@@ -945,7 +1217,29 @@ class Experiment:
 
         # Create a object with fields for each output name.
         return NamedTuple("RunResult", [(k, list) for k in temp.keys()])(**temp)
-            
+
+    def run_tree(self,
+            messages=None,
+            rng_or_seed:np.random.Generator|int|None = None,
+            ):
+        """Run the experient,returning all the dataframes as output.
+        If there is a single output stage, the results are returned as a list.
+        Otherwise, the results are grouped by name.
+        """
+        from tqdm import tqdm
+        
+        num_out = len(list(self.run(messages=messages,
+                                    rng_or_seed=None,
+                                    dry_run=True)))
+
+        result = self._build_out_tree()
+        with tqdm(total=num_out) as progress_bar:
+            for output in self.run(messages, rng_or_seed):
+                result.add_output(output)
+                progress_bar.update(1)
+
+
+        return result
 
 
     def gather(self, stat_func, messages=None, rng=None):
@@ -1011,7 +1305,90 @@ class RepeatingStage(Stage):
         result = PipelineData(input, msgs, rng)
 
         return result
-            
+
+class ImportStage(Stage):
+    """ Import data from existing matrix
+    """
+    PROVIDES = {"abundance", "base_response", "sample_coords", "sample_info", "species_info"}
+    def __init__(self,
+                 abundance,
+                 sample_coords=None,
+                 base_abundance=None,
+                 spcs_info=None,
+                 sample_info=None,
+                 transpose=False,
+                 rarity_scale= 0.1,
+                 **kwargs):
+        def unify(m) -> np.ndarray:
+            if transpose:
+                return np.array(m).T
+            else:
+                return np.array(m)
+        super().__init__(**kwargs)
+        self.abundance = unify(abundance)
+        if base_abundance is not None:
+            if base_abundance.shape != abundance.shape:
+                raise ValueError("Base abundance matrix must have same shape as abundance.")
+            self.base_abundance = unify(base_abundance)
+        else:
+            # For common species, we can take the probability (for applying presence/absence
+            # noise) as just the abundance over max abundance. However, for rare
+            # singleton species, this would imply that they are 100% certain.
+            # Instead, we scale probability by total count for a species, so that
+            # singletons have probability rarity_scale, with maximum probability
+            # increasing as 1-exp(-k*count).
+            if rarity_scale <=0 or rarity_scale >1:
+                raise ValueError("Prob scale must be in (0,1].")
+            k = -np.log(1-rarity_scale)
+            self.base_abundance = self.abundance / self.abundance.max(axis=0, initial=1)
+            self.base_abundance *= 1 - np.exp(-k * (self.abundance>0).sum(axis=0))
+        if spcs_info is not None:
+            if len(spcs_info) != self.abundance.shape[1]:
+                raise ValueError("Species info length does not equal abundance "
+                                 f"({len(spcs_info)} vs. {self.abundance.shape[1]}).")
+            self.spcs_info = spcs_info.copy()
+            self.spcs_info.index.name="species_id"
+        else:
+            self.spcs_info = pd.DataFrame(index=range(0, self.abundance.shape[1]))
+        if sample_info is not None:
+            if len(sample_info) != self.abundance.shape[0]:
+                raise ValueError("Sample info length does not equal abundance "
+                                 f"({len(sample_info)} vs. {self.abundance.shape[0]}).")
+            self.sample_info = sample_info.copy()
+            self.sample_info.index.name="sample_id"
+        else:
+            self.sample_info = pd.DataFrame(index=range(0, self.abundance.shape[0]))
+        if sample_coords is not None:
+            if len(sample_coords) != self.abundance.shape[0]:
+                raise ValueError("Sample coords length does not equal abundance "
+                                 f"({len(sample_coords)} vs. {self.abundance.shape[0]}).")
+            self.sample_coords = sample_coords.copy()
+            self.sample_coords.index.name="sample_id"
+        else:
+            self.sample_coords = pd.DataFrame(
+                {"coord": range(self.abundance.shape[0])},
+                index=range(self.abundance.shape[0]))
+        self.mean_base = self.base_abundance[self.base_abundance>0].mean()
+
+
+    def default_name(self) -> str:
+        return "Import"
+
+    def execute(self, input: StageData,
+                rng: np.random.Generator,
+                state: Stage.State) -> PipelineData:
+        # do stuff
+        result = PipelineData(input.copy(
+            abundance=self.abundance,
+            base_response=self.base_abundance,
+            species_info=self.spcs_info,
+            sample_info=self.sample_info,
+            sample_coords=self.sample_coords),
+                              [],rng)
+        
+
+        return result
+
             
 
     

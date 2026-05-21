@@ -6,7 +6,7 @@ from matplotlib.collections import LineCollection
 from matplotlib.widgets import Button
 
 
-def plot_spectrum(res: ExperimentResult, samp_id: int,  ax=None, log=False):
+def plot_spectrum(res: ExperimentResult, samp_id: int,  ax=None, log=False, alpha=1.0, color='blue', lw=0.5):
     masses = res.species_info.mass
     intens = res.abundance[samp_id, :]
     if log:
@@ -14,7 +14,8 @@ def plot_spectrum(res: ExperimentResult, samp_id: int,  ax=None, log=False):
     if ax is None:
         fig, ax = plt.subplots()
     segs =  [([x, 0], [x,y]) for x,y in zip(masses, intens)]
-    coll = LineCollection(segs, linewidths=1)
+    coll = LineCollection(segs, linewidths=lw, alpha=alpha, color=color)
+
     ax.add_collection(coll)
     ax.set_ylim(0, intens.max())
     ax.set_xlim(masses.min(), masses.max())

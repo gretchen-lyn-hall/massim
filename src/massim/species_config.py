@@ -147,6 +147,7 @@ class SpeciesGroupConfig:
 
         """
         self.name = name
+        self.eq_major = 0
         if isinstance(species, int):
             self.N = species
             self.species = [f"{name}_{n+1}" for n in range(self.N)]
@@ -237,10 +238,88 @@ class SpeciesGroupConfig:
         return result
 
     @staticmethod
-    def BasicConfig(name, gradients, N):
-        result = SpeciesGroupConfig(name, N, LogRandomDistribution(1e4, 1e9))
-        for grad_id in gradients:
-            result.add_gradient_response(grad_id, BetaResponse.DefaultResponse())
+    def BasicConfig(name, gradients, N, A0=100, mode=None, clump=1, beta_div=1, eq_major=0):
+        """
+        Set up a simple species group using a simplified set of parameters.
+
+        N: Number of species in group
+        A0: Species abundance distribution. If a number, each species max
+            abundance will be drawn from a lognormal distribution with that
+            as a mean. Otherwise it can be any Distribution instance.
+
+        mode: Determines the location of species niches along each gradient.
+              If None, then species will be uniformly distributed across gradient
+              Otherwise, it can be a distribution or list of distributions (one per
+              gradient).
+
+        clump: Used with the default species distribution, it's a simple parameter
+               controlling the species richness along each gradient. When it is
+               1 (and mode=None), niche locations are uniformly distributed.
+               As it increases, species richness will increase along the gradient.
+               Can be a single value for all gradients, or a list of values, one
+               per gradient.
+
+        beta_div: Determines species turnover along a gradient. This is not an
+                  exact measure of beta diversity, but instead controls the
+                  average niche range. Mean range = 100 / beta_div
+                  Can be a single value for all gradients, or a list of values,
+                  one per gradient.
+
+        eq_major: Controls the distribution of "major species", so that the
+                  most abundant species are evenly located across the
+                  gradients.
+                  "Major species" are defined by the area under the niche curve.
+                  The areas of the top 'eq_major' percent are computed, and used
+                  to proportionally partition the gradient. Then, each major
+                  species is moved to the midpoint of its partition. Minor
+                  species are unaffected.
+                  This computation is done per gradient, so "major species" on
+                  each gradient may be different.
+                  If eq_major is zero, no relocation is performed.
+        """
+        def list_of(varname, x, typ, val_lo=None, val_hi=None):
+            if not isinstance(x, list):
+                x = [x] * len(gradients)
+            if not all(isinstance(y, typ) for y in x):
+                raise ValueError(f"Parameter '{varname}' must be a '{typ}'.")
+            if len(x) != len(gradients):
+                raise ValueError(f"Parameter '{varname}' must be a '{typ}' or "
+                                 "list of same size as gradients.")
+            if val_lo is not None or val_hi is not None:
+                if val_lo is None:
+                    msg = f"no greater than {val_hi}"
+                    val_lo = -np.inf
+                elif val_hi is None:
+                    msg = f"no less than {val_lo}"
+                    val_hi = np.inf
+                else:
+                    msg = f"between {val_lo} and {val_hi}"
+
+                if not all((y>=val_lo) and (y<=val_hi) for y in x):
+                    raise ValueError(f"Parameter '{varname}' must be {msg}")
+                
+            return x
+
+        beta_div = list_of("beta_div", beta_div, (float, int), 0)
+        clump = list_of("clump", clump, int, 1)
+        if mode is None:
+            mode = 50
+        mode = list_of("mode", mode, (float, int))
+        if eq_major < 0 or eq_major > 100:
+            raise ValueError("'eq_major' must be a valid percent (0-100)")
+        
+        if isinstance(A0, (int, float)):
+            A0 = LogNormalDistribution(np.log(A0), 1)
+            
+        
+        result = SpeciesGroupConfig(name, N, A0)
+        result.eq_major = eq_major
+        for idx, grad_id in enumerate(gradients):
+            result.add_gradient_response(grad_id,
+                                         BetaResponse.DefaultResponse(mode=mode[idx],
+                                                                      clump=clump[idx],
+                                                                      beta_div=beta_div[idx])
+                                         )
         return result
 
 
@@ -255,6 +334,11 @@ class SpeciesGroupConfig:
             grad_id: config.generate_response(self.species, rng=rng)
             for grad_id, config in self.gradient_configs.items()
         }
+
+        if self.eq_major > 0:
+            for resp in responses.values():
+                resp.equalize(A0, self.eq_major / 100)
+        
 
         masses = self.mass_dist(self.N, rng)
         return SpeciesGroupConfig.ResponseSet(self, A0, responses, masses)

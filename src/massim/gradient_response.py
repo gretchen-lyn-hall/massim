@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 from .utils import dotdict
 from .distributions import (
-    RNG, gen_param_dist, Distribution, UniformDistribution, NormalDistribution
+    RNG, gen_param_dist, Distribution, UniformDistribution, NormalDistribution, Clump
 )
 
 
@@ -86,6 +86,34 @@ class BetaResponse(GradientResponse):
                                 
                 index=self.species)
 
+        def area(self):
+            import scipy.special as SS
+            b = self.alpha / (self.alpha + self.gamma)
+            d = b**self.alpha * (1-b)**self.gamma
+            # Integration for area under the curve from Mathematica
+            return (self.r / d
+                    * SS.gamma(1+self.alpha) * SS.gamma(1+self.gamma)
+                    / SS.gamma(2 + self.alpha + self.gamma))
+
+        def equalize(self, A0, major_frac):
+            """
+            Find the top major species along this gradient and relocate them
+            to be evenly spaced
+            """
+            m = int(len(self.m) * major_frac)
+            if m == 0:
+                return
+            T = self.area() * A0
+            # Indices of top m species
+            majors = T.argpartition(-m)[-m:]
+            # define fraction of gradient for each
+            tot = 100 * T[majors] / T[majors].sum()
+            # New locations at midpoint of each partition
+            # Note that argpartition doesn't sort the top 'm'
+            new_m = tot.cumsum() - tot / 2
+            self.m[majors] = new_m
+            
+        
         def apply(self, X, beta_mul=1.0):
             alpha = self.alpha * beta_mul
             gamma = self.gamma * beta_mul
@@ -173,7 +201,7 @@ class BetaResponse(GradientResponse):
 
     def adjust(self, mode=0, range=0, beta=0):
         m = self.mode.widen(mode)
-        r = self.range.increase(range)
+        r = self.range.increase(range).widen(range)
         a = self.alpha.decrease(beta)
         if self.gamma:
             g = self.gamma.decrease(beta)
@@ -230,10 +258,10 @@ class BetaResponse(GradientResponse):
             no_skew=(skewness == 0))
 
     @staticmethod
-    def DefaultResponse():
+    def DefaultResponse(mode=50, beta_div=1, clump=1):
         return BetaResponse(
-            mode=UniformDistribution(-95, 195),
-            range=NormalDistribution(100, 30),
+            mode=Clump(mode-100, mode+100, clump=clump),
+            range=NormalDistribution(100/beta_div, 30/beta_div),
             alpha=UniformDistribution(2.5, 6.5),
             gamma=UniformDistribution(2.5, 6.5),
             no_skew=False)

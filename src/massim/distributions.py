@@ -214,6 +214,12 @@ class Distribution:
     def decrease(self, percent):
         return self.increase(-percent)
 
+    def update(self, param, val):
+        if param not in self._params:
+            raise ValueError(f"Distribution '{self.shortname}' has no parameter '{param}'.")
+        self._params[param] = val
+        setattr(self, param, val)
+
     def to_cdist(self):
 
         from massim._core import gen_dist
@@ -234,6 +240,41 @@ class Distribution:
     def __call__(self, N, rng=None):
         rng = RNG(rng)
         return self._sample(rng, N)
+
+    def __neg__(self):
+        return NegateDistribution(self)
+
+    def __add__(self, rhs):
+        if isinstance(rhs, (int, float)):
+            rhs = ConstantDistribution(rhs)
+        return SumDistribution([self, rhs])
+
+    def __radd__(self, rhs):
+        if isinstance(rhs, (int, float)):
+            rhs = ConstantDistribution(rhs)
+        return SumDistribution([self, rhs])
+
+    def __sub__(self, rhs):
+        if isinstance(rhs, (int, float)):
+            rhs = ConstantDistribution(rhs)
+        return SumDistribution([self, rhs], [1, -1])
+    
+    def __rsub__(self, rhs):
+        if isinstance(rhs, (int, float)):
+            rhs = ConstantDistribution(rhs)
+        return SumDistribution([rhs, self], [1, -1])
+
+    def __mul__(self, rhs):
+        if isinstance(rhs, (int, float)):
+            return ScaleDistribution(self, rhs)
+        return ProductDistribution([self, rhs])
+
+    def __rmul__(self, rhs):
+        if isinstance(rhs, (int, float)):
+            return ScaleDistribution(self, rhs)
+        return ProductDistribution([self, rhs])
+
+
 
 def parse_func(text, line_no=None):
     text = text.replace(" ","")
@@ -356,6 +397,41 @@ class UniformDistribution(Distribution):
 
 
 @distribution
+class Clump(Distribution):
+    def __init__(self, min: float =None, max: float =None, clump: int = 1, defaults=None):
+        super().__init__(dict(min="def_min", max="def_max", clump=1),
+                         defaults,
+                         **dict(min=min, max=max, clump=clump))
+        self.clump = clump
+
+    def _sample(self, rng, N):
+        ms =  rng.uniform(self.min, self.max, size=N * self.clump)
+        if self.clump > 1:
+            ms = np.sort(ms)
+            probs = np.linspace(1/(N*self.clump), 1, N * self.clump) ** self.clump
+            probs = probs / probs.sum()
+            ms = rng.choice(ms, size=N, p=probs, replace=False)
+        return ms
+
+    def widen(self, percent):
+        width = (self.max - self.min) * (100 + percent) / 100.0
+        ctr = (self.min + self.max) / 2
+        return Clump(ctr - width / 2,
+                     ctr + width / 2,
+                     self.clump)
+
+
+    def increase(self, percent):
+        width = (self.max - self.min)
+        ctr = (self.min + self.max) / 2 * (100 + percent) / 100.0
+        return Clump(ctr - width / 2,
+                     ctr + width / 2,
+                     self.clump)
+
+
+
+
+@distribution
 class NormalDistribution(Distribution):
     def __init__(self, mean=None, std=None, defaults=None):
         super().__init__(dict(mean="def_mean", std="def_var"),
@@ -442,6 +518,196 @@ class LogBetaDistribution(Distribution):
         ctr = (self.logmin + self.logmax) / 2 * (100 + percent) / 100.0
         self.logmin = ctr - width / 2
         self.logmax = ctr + width / 2
+
+@distribution
+class PermutedValues(Distribution):
+    def __init__(self, values):
+        super().__init__(dict())
+        self.values = values
+        
+    def _sample(self, rng, N):
+        assert N <= len(self.values)
+        result = rng.permutation(self.values)
+        return result[:N]
+
+    def widen(self, percent):
+        raise NotImplementedError()
+
+    def increase(self, percent):
+        raise NotImplementedError()
+
+@distribution
+class MixtureDistribution(Distribution):
+    def __init__(self, subdists, p=None):
+        super().__init__(dict())
+        self.dists = subdists
+        self.p = p
+        
+    def _sample(self, rng, N):
+        which = rng.choice(len(self.dists), size=N, p=self.p)
+        result = np.zeros(N)
+        for idx, dist in enumerate(self.dists):
+            where = which == idx
+            result[where] = dist(where.sum(), rng=rng)
+        return result
+
+    def widen(self, percent):
+        for dist in self.dists:
+            dist.widen(percent)
+
+    def increase(self, percent):
+        for dist in self.dists:
+            dist.increase(percent)
+
+@distribution
+class NegateDistribution(Distribution):
+    def __init__(self, subdist):
+        super().__init__(dict())
+        self.dist = subdist
+        
+    def _sample(self, rng, N):
+        result = self.dist(N, rng=rng)
+        return -result
+
+    def widen(self, percent):
+        self.dist.widen(percent)
+
+    def increase(self, percent):
+        self.dist.increase(-percent)
+
+@distribution
+class ScaleDistribution(Distribution):
+    def __init__(self, subdist, scale):
+        super().__init__(dict())
+        self.dist = subdist
+        self.scale = scale
+        
+    def _sample(self, rng, N):
+        result = self.dist(N, rng=rng)
+        return self.scale * result
+
+    def widen(self, percent):
+        self.dist.widen(percent)
+
+    def increase(self, percent):
+        self.dist.increase(-percent)
+
+@distribution
+class ExpDistribution(Distribution):
+    def __init__(self, subdist):
+        super().__init__(dict())
+        self.dist = subdist
+        
+    def _sample(self, rng, N):
+        result = self.dist(N, rng=rng)
+        return np.exp(result)
+
+    def widen(self, percent):
+        self.dist.widen(percent)
+
+    def increase(self, percent):
+        self.dist.increase(-percent)
+
+@distribution
+class LogDistribution(Distribution):
+    def __init__(self, subdist):
+        super().__init__(dict())
+        self.dist = subdist
+        
+    def _sample(self, rng, N):
+        result = self.dist(N, rng=rng)
+        return np.log(result)
+
+    def widen(self, percent):
+        self.dist.widen(percent)
+
+    def increase(self, percent):
+        self.dist.increase(-percent)
+
+
+@distribution
+class SumDistribution(Distribution):
+    def __init__(self, subdists, weights=None):
+        super().__init__(dict())
+        self.dists = subdists
+        if weights is None:
+            weights = np.ones(len(subdists))
+        self.weights = weights
+        
+        
+    def _sample(self, rng, N):
+        result = np.zeros(N)
+        for weight, dist in zip(self.weights, self.dists):
+            result +=  weight * dist(N, rng=rng)        
+        return result
+
+    def widen(self, percent):
+        for dist in self.dists:
+            dist.widen(percent)
+
+    def increase(self, percent):
+        for dist in self.dists:
+            dist.increase(percent)
+
+@distribution
+class ProductDistribution(Distribution):
+    """
+    If the distributions only produce positive results, it is probably more
+    efficient and numerically accurate to use sums of logs. However,
+    if that is not possible, use this.
+    Note that if exponents aren't integral, you may end up with complex results.
+    """
+    def __init__(self, subdists, exponents=None):
+        super().__init__(dict())
+        self.dists = subdists
+        if exponents is None:
+            exponents = np.ones(len(subdists))
+        self.exponents = exponents
+        
+        
+    def _sample(self, rng, N):
+        result = np.ones(N)
+        for exponent, dist in zip(self.exponents, self.dists):
+            result +=  dist(N, rng=rng)**exponent
+        return result
+
+    def widen(self, percent):
+        for dist in self.dists:
+            dist.widen(percent)
+
+    def increase(self, percent):
+        for dist in self.dists:
+            dist.increase(percent)
+
+@distribution
+class ChoiceDistribution(Distribution):
+    """
+    If the distributions only produce positive results, it is probably more
+    efficient and numerically accurate to use sums of logs. However,
+    if that is not possible, use this.
+    Note that if exponents aren't integral, you may end up with complex results.
+    """
+    def __init__(self, choices, probs=None, replace=False):
+        super().__init__(dict())
+        self.choices = choices
+        self.probs = None
+        self.replace = replace
+        if probs is not None:            
+            if len(self.choices) != len(probs):
+                raise ValueError("Choices and probs must have same length")
+            if any(probs < 0):
+                raise ValueError("All probs must be nonnegative")
+            self.probs = probs / np.sum(probs)
+
+    def _sample(self, rng, N):
+        result = rng.choice(self.choices, p = self.probs, replace=self.replace, size=N)
+        return result
+
+    def widen(self, percent):
+        raise NotImplementedError()
+
+    def increase(self, percent):
+        raise NotImplementedError()
 
 
 
