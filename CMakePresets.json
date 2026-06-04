@@ -1,0 +1,36 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "generator": "Ninja",
+      "binaryDir": "build/debug",
+      "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "Debug",
+	"SKBUILD_PROJECT_NAME": "massim"
+      }
+    },
+       {
+      "name": "release",
+      "displayName": "Release",
+      "generator": "Ninja",
+      "binaryDir": "build/release",
+      "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "Release",
+	  "SKBUILD_PROJECT_NAME": "massim"
+      }
+       }
+      ,
+       {
+      "name": "reldebug",
+      "displayName": "RelWithDebInfo",
+      "generator": "Ninja",
+      "binaryDir": "build/reldebug",
+      "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+	  "SKBUILD_PROJECT_NAME": "massim"
+      }
+    }
+  ]
+}
