@@ -24,17 +24,21 @@ def RNG(rng_or_seed: int|np.random.Generator|None=None) -> np.random.Generator:
     rng_or_seed : None, int, or np.random.Generator
          None: Return a new random generator with a random seed.
          int: Return a new random generator with given seed
-         np.random.Generator: Spawn a new generator from the argument.
+         np.random.Generator: Return input
 
     Returns
     -------
     out: np.random.Generator
     """
+    if isinstance(rng_or_seed, np.random.Generator):
+        return rng_or_seed
+
     if rng_or_seed is None:
         return np.random.default_rng()
     if isinstance(rng_or_seed, int):
         return np.random.default_rng(rng_or_seed)
-    return rng_or_seed.spawn(1)[0]
+    else:
+        raise ValueError("`rng_or_seed` must be an RNG, None, or int.")
 
 
 
@@ -559,6 +563,34 @@ class MixtureDistribution(Distribution):
         for dist in self.dists:
             dist.increase(percent)
 
+"""
+This distribution samples from one of its child distributions.
+It's a special case of the mixture distribution in that
+As a feature (not a bug!), when sampling many points (N>1), all
+samples will come the *same* child distribution.
+For sampling one value at a time, the results are identical.
+"""
+
+@distribution
+class OneOfDistribution(Distribution):
+    def __init__(self, subdists, p=None):
+        super().__init__(dict())
+        self.dists = subdists
+        self.p = p
+        
+    def _sample(self, rng, N):
+        which = rng.choice(len(self.dists), size=1, p=self.p)[0]
+        return self.dists[which](N, rng=rng)
+
+    def widen(self, percent):
+        for dist in self.dists:
+            dist.widen(percent)
+
+    def increase(self, percent):
+        for dist in self.dists:
+            dist.increase(percent)
+
+            
 @distribution
 class NegateDistribution(Distribution):
     def __init__(self, subdist):
@@ -592,6 +624,7 @@ class ScaleDistribution(Distribution):
     def increase(self, percent):
         self.dist.increase(-percent)
 
+
 @distribution
 class ExpDistribution(Distribution):
     def __init__(self, subdist):
@@ -601,6 +634,26 @@ class ExpDistribution(Distribution):
     def _sample(self, rng, N):
         result = self.dist(N, rng=rng)
         return np.exp(result)
+
+    def widen(self, percent):
+        self.dist.widen(percent)
+
+    def increase(self, percent):
+        self.dist.increase(-percent)
+
+
+@distribution
+class PowDistribution(Distribution):
+    def __init__(self, p, subdist):
+        super().__init__(dict(p=p),
+                         None,
+                         **dict(p=p))
+        self.p = p
+        self.dist = subdist
+        
+    def _sample(self, rng, N):
+        result = self.dist(N, rng=rng)
+        return np.pow(self.p, result)
 
     def widen(self, percent):
         self.dist.widen(percent)
@@ -633,7 +686,6 @@ class SumDistribution(Distribution):
         if weights is None:
             weights = np.ones(len(subdists))
         self.weights = weights
-        
         
     def _sample(self, rng, N):
         result = np.zeros(N)
@@ -692,7 +744,8 @@ class ChoiceDistribution(Distribution):
         self.choices = choices
         self.probs = None
         self.replace = replace
-        if probs is not None:            
+        if probs is not None:
+            probs = np.array(probs)
             if len(self.choices) != len(probs):
                 raise ValueError("Choices and probs must have same length")
             if any(probs < 0):
@@ -709,6 +762,43 @@ class ChoiceDistribution(Distribution):
     def increase(self, percent):
         raise NotImplementedError()
 
+
+@distribution
+class PiecewiseEmpiricalDistribution(Distribution):
+    @staticmethod
+    def from_data(data, bins="auto"):
+        if isinstance(bins, str):
+            bins = np.histogram_bin_edges(data, bins).shape[0]
+        qs = np.linspace(0, 1, bins)
+        icdf = np.quantile(data, qs, method='inverted_cdf')
+        return PiecewiseEmpiricalDistribution(icdf)
+    
+    """
+    Sample from an empirically derived CDF using inverse transform sampling.
+    This distribution approximates the inverse CDF with a piecewise linear
+    function. It is typically constructed using the `from_data` static member
+    method, but can be constructed manually by providing the values of the
+    inverse CDF.
+    This is fairly basic; probability values are uniformly spaced on [0,1], so
+    it may require a huge number of samples (bins) for extreme distributions.
+    
+    """
+    def __init__(self, icdf):
+        super().__init__(dict())
+        self.icdf = icdf
+
+    def _sample(self, rng, N):
+
+        xs = rng.uniform(size=N) * (self.icdf.shape[0]-1)
+        x_lo = np.floor(xs).astype(int)
+        s = xs - x_lo
+        return (1-s) * self.icdf[x_lo] + s * self.icdf[x_lo + 1]
+
+    def widen(self, percent):
+        raise NotImplementedError()
+
+    def increase(self, percent):
+        raise NotImplementedError()
 
 
 ALIASES = dict(
@@ -790,6 +880,106 @@ def force_range(dist: Distribution, shape: int|tuple[int],
     return result
 
 
+import scipy.stats as ST
+
+
+@dataclass
+class DistributionFit:
+    name: str
+    distribution: object
+    params: dict
+    err: float
+    ks_stat: float
+    ks_pvalue: float
+
+
+# Helper function to find distributions that match data.
+# For each distribution in dist_names (defaults to *all* continuous
+# distributions in scipy.stats), it finds the best fit for the distribution
+# using the distribution's `fit` method.
+# It then computes the MSE of the PDF against the data to find the
+# closest distributions, and performs a ks-test.
+# Returns a list of all fits, sorted by error (least first).
+def best_fit_distribution(data, bins=200, ax=None, dist_names=None, p_thresh=0.0):
+    import warnings
+    from scipy.stats._continuous_distns import _distn_names
+
+    """Model data by finding best fit distribution to data"""
+    # Get histogram of original data
+    y, x = np.histogram(data, bins=bins, density=True)
+    x = (x + np.roll(x, -1))[:-1] / 2.0
+
+    # Best holders
+    results = []
+    if dist_names is None:
+        dist_names = _distn_names
+
+    errs = []
+        
+    # Estimate distribution parameters from data
+    for ii, distribution_name in enumerate(
+            [d for d in dist_names
+             if d not in ['levy_stable', 'studentized_range']]):
+
+        distribution = getattr(ST, distribution_name)
+
+        # Try to fit the distribution
+        try:
+            # Ignore warnings from data that can't be fit
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore')
+                
+                # fit dist to data
+                params = distribution.fit(data)
+
+                # Separate parts of parameters
+                arg = params[:-2]
+                loc = params[-2]
+                scale = params[-1]
+                
+                # Calculate fitted PDF and error with fit in distribution
+                pdf = distribution.pdf(x, loc=loc, scale=scale, *arg)
+                sse = np.sum(np.power(y - pdf, 2.0))
+                
+                # if axis pass in add to plot
+                try:
+                    if ax:
+                        pd.Series(pdf, x).plot(ax=ax)
+                except Exception:
+                    pass
+
+                ks_result = ST.kstest(data, distribution(*params).cdf)
+                param_names = distribution.shapes
+                if param_names is None:
+                    param_names = tuple()
+                elif isinstance(param_names, str):
+                    param_names = tuple([x.strip() for x in param_names.split(',')])
+                param_names = param_names + ('loc', 'scale')
+                # identify if this distribution is better
+                if ks_result.pvalue >= p_thresh:
+                    results.append(
+                        DistributionFit(
+                            distribution_name,
+                            distribution,
+                            dict(zip(param_names,
+                                     params)),
+                            sse,
+                            ks_result.statistic,
+                            ks_result.pvalue))
+        
+        except Exception as e:
+            errs.append((distribution_name, e))
+            pass
+
+    return sorted(results, key=lambda x: x.err), errs
+
+
+
+
+
+
+
+
 __all__ = [
     "RNG",
     "Distribution",
@@ -801,4 +991,5 @@ __all__ = [
     "LinearRampDistribution",
     "force_range",
     "parse_distribution",
+    "best_fit_distribution",
     ]

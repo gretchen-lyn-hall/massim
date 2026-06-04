@@ -19,11 +19,14 @@ typedef Eigen::VectorXd VecType;
 // Use row major storage to align with numpy
 typedef Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> MatType;
 typedef Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> BoolMatType;
+typedef Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> IntMatType;
+typedef Eigen::Array<bool, Eigen::Dynamic, 1> BoolArrayType;
 typedef Eigen::ArrayXi IntArrayType;
 typedef Eigen::Ref<ArrayType> ArrayRef;
 typedef Eigen::Ref<MatType> MatRef;
 typedef Eigen::Ref<const ArrayType> ConstArrayRef;
 typedef Eigen::Ref<const MatType> ConstMatRef;
+typedef Eigen::Ref<const IntArrayType> ConstIntArrayRef;
 
 
 

@@ -15,6 +15,7 @@ build-dir = "build/{wheel_tag}"
 
 [tool.scikit-build.cmake]
 #build-type = "Debug"
+build-type = "RelWithDebInfo"
 
 [build-system]
 requires = ["scikit-build-core>=0.10", "pybind11"]

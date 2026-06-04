@@ -10,7 +10,25 @@
 #include "rng.h"
 
 namespace massim
-{    
+{
+
+
+// C++'s negative binomial implementation only works with integer n.
+// However, negative binomial can be defined for real n in terms of
+// Gamma and Poisson distributions
+inline
+int negative_binomial(double n, float p, RNG& rng) {
+  std::gamma_distribution<> gamma_d(n, p / (1-p));
+  return std::poisson_distribution<>(gamma_d(rng.engine))(rng.engine);
+}
+
+// Overload for the case p=0.5
+inline
+int negative_binomial(double n, RNG& rng) {
+  std::gamma_distribution<> gamma_d(n, 1.0);
+  return std::poisson_distribution<>(gamma_d(rng.engine))(rng.engine);
+}
+
 
 class Distribution {
   std::vector<double> m_default_buf;

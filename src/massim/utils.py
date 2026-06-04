@@ -8,13 +8,21 @@ class dotdict(dict):
     __delattr__ = dict.__delitem__
 
 class PrettyDict(OrderedDict):
-    __setattr__ = OrderedDict.__setitem__
-    __getattr__ = OrderedDict.__getitem__
 
     def __init__(self):
         super().__init__()
-        super().__setattr__("_format", defaultdict(list))
-                            
+        self._format = defaultdict(list)
+
+    def __getattr__(self, key):
+        if key in self:
+            return self[key]
+        return super().__getattribute__(key)
+
+    def __setattr__(self, key, value):
+        if key == "_format":
+            super().__setattr__(key, value)
+        else:
+            self[key] = value
         
     def __repr__(self):
         lines = []

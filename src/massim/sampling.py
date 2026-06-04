@@ -325,9 +325,8 @@ class SampleGroup(SamplerConfig):
 
         return result
 
-    
+GridGradient = namedtuple("GridGradient", ['grad_id', 'N', 'lo', 'hi'])    
 class GridSampler(SamplerConfig):
-    GridGradient = namedtuple("GridGradient", ['grad_id', 'N', 'lo', 'hi'])
     
     def __init__(self, name, N=None):
         super().__init__(name, N=N)
@@ -336,7 +335,7 @@ class GridSampler(SamplerConfig):
 
     def add_gradient(self, grad_id, N, lo=0, hi=100):
         self.check_gradient(grad_id, expect=False)
-        new_dim = GridSampler.GridGradient(grad_id, N, lo, hi)
+        new_dim = GridGradient(grad_id, N, lo, hi)
         self.dimensions.append(new_dim)
         if self.grid_size == 0:
             self.grid_size = N

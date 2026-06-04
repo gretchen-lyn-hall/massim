@@ -116,6 +116,13 @@ class GraphIgraph(TransformGraph):
     def degrees(self):
         return dict((int(b[0]), b[2]) for b in self.G.degree_distribution().bins())
 
+    def isolated_compounds(self):
+        return np.array(
+            [x[0] for x in zip(self.G.vs()["compound_id"], self.G.degree())
+             if x[1] == 0])
+
+    
+
 
 class GraphGT(TransformGraph):
     def typematch(self, typ):

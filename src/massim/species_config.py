@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from typing import Sequence
 from abc import ABC, abstractmethod
+from copy import copy, deepcopy
 
 from .utils import dotdict
 from .distributions import (
@@ -21,11 +22,128 @@ from .distributions import (
 from .gradient_response import BetaResponse
 from .mass_distribution import MassDistribution, RandomMasses
 from .experiment import Stage, StageParameter, StageData, PipelineData, Message
+from .sampling import RandomSampler, GridSampler, TransectSampler, GenSampleCoordsStage
 
 
 from ._core import adjust_masses
 
 CIA_DB = "WHOI_CIA_DB_2016_11_21.parquet"
+
+
+def quick_compas(n_species, n_samples, n_grads, A0 = 100,
+                 mode=None, beta_div=1, eq_major=0, sample_method="grid",
+                 min_bound=0, max_bound=100):
+    """
+    Set up a simple compas simulation for a given number of gradients, species, and samples.
+    The simulation uses only a single species group, configures with the parameters:
+      Sampling:
+            sample_method: One of 'grid', 'transect', or 'random'.
+               In the case of 'grid', if n_samples is an integer, massim will construct a
+               grid with equal numbers of samples in each direction (`int(n_samples ** (1/n_grads))`)
+               and thus the actual number of samples will differ.
+               Alternatively, n_samples can be a list of integers, one per gradient, to
+               explicitly specify the grid dimenstions.
+            min_bound/max_bound: The minimum/maximum sampling coordinates along each gradient.
+               By default, massim uses the full range (0-100), but a subset of this can be
+               specified.
+
+      Species configuration:
+            A0: Maximum intensity for species abundance. If a number is provided, MASSIM will
+                use a lognormal distribution centered at A0. Otherwise, a distribution can be provided.
+            mode: Determines the location of species niches along each gradient.
+                  If None, then species will be uniformly distributed across gradient
+                  Otherwise, it can be a distribution or list of distributions (one per
+                  gradient).
+
+            clump: Used with the default species distribution, it's a simple parameter
+                   controlling the species richness along each gradient. When it is
+                   1 (and mode=None), niche locations are uniformly distributed.
+                   As it increases, species richness will increase along the gradient.
+                   Can be a single value for all gradients, or a list of values, one
+                   per gradient.
+
+            beta_div: Determines species turnover along a gradient. This is not an
+                      exact measure of beta diversity, but instead controls the
+                      average niche range. Mean range = 100 / beta_div
+                      Can be a single value for all gradients, or a list of values,
+                      one per gradient.
+
+            eq_major: Controls the distribution of "major species", so that the
+                      most abundant species are evenly located across the
+                      gradients.
+                      "Major species" are defined by the area under the niche curve.
+                      The areas of the top 'eq_major' percent are computed, and used
+                      to proportionally partition the gradient. Then, each major
+                      species is moved to the midpoint of its partition. Minor
+                      species are unaffected.
+                      This computation is done per gradient, so "major species" on
+                      each gradient may be different.
+                      If eq_major is zero, no relocation is performed.
+
+    """
+    
+    def gradify(val, name, oftype=(int, float)):
+        if isinstance(val, oftype):
+            val = [val] * n_grads
+        elif hasattr(val, "__len__"):
+            if len(val) != n_grads:
+                raise ValueError(f"Length of {name} does not match number of gradients.")
+            if not all(isinstance(x, oftype) for x in val):
+                raise ValueError(f" Parameter {name} must either be a scalar, or a "
+                                 "list/iterable of scalars with length of `n_grads`.")
+        else:
+            raise ValueError(f" Parameter {name} must either be a scalar, or a "
+                             "list/iterable of scalars with length of `n_grads`.")
+        return val
+            
+    
+    grads = [f"gradient_{i}" for i in range(1, n_grads+1)]
+    min_bound = gradify(min_bound, "min_bound")
+    max_bound = gradify(max_bound, "max_bound")
+
+    if not isinstance(n_samples, int):
+        if sample_method != "grid":
+            raise ValueError("`n_samples` must be an integer.")
+        else:
+            if not hasattr(n_samples, "__len__"):
+                raise ValueError("`n_samples` must be an integer or list of integers.")
+            if len(n_samples) != n_grads:
+                raise ValueError("`n_samples` must be an integer or list of integers of length `n_grads`.")
+            if not all(isinstance(x, int) for x in n_samples):
+                raise ValueError("`n_samples` must be an integer or list of integers of length `n_grads`.")
+    
+    spcs = SpeciesGroupConfig.BasicConfig("species",
+                                          grads,
+                                          n_species,
+                                          A0=A0,
+                                          mode=mode,
+                                          beta_div=beta_div,
+                                          eq_major=eq_major)
+    match (sample_method):
+        case "random":
+            samp = RandomSampler("random", n_samples);
+            for idx, grad in enumerate(grads):
+                samp.add_gradient(grad, UniformDistribution(min_bound[idx], max_bound[idx]))
+        case "grid":
+            if isinstance(n_samples, int):
+                n_samples = [int(n_samples**(1/n_grads))] * n_grads
+            samp = GridSampler("random")
+            for idx, grad in enumerate(grads):
+                samp.add_gradient(grad, n_samples[idx], min_bound[idx], max_bound[idx])
+        case "transect":
+            samp = TransectSampler("random", n_samples)
+            for idx, grad in enumerate(grads):
+                samp.add_gradient(grad, min_bound[idx], max_bound[idx])
+        case _:
+            raise ValueError("`sample_method` must be 'grid', 'transect', or 'random'.")
+    return (GenSampleCoordsStage([samp]),
+            GenSpeciesStage([spcs]),
+            GenCoreStage())
+                
+    
+
+    
+
 
 
 def load_cia_masses():
@@ -361,7 +479,7 @@ class GenSpeciesStage(Stage):
     class State(Stage.State):
         def __init__(self, stage: GenSpeciesStage):
             super().__init__(stage)
-            self.species_configs = stage.species_configs[:]
+            self.species_configs = [deepcopy(x) for x in stage.species_configs]
 
         def handle_message(self, message: Message) -> bool:
             if super().handle_message(message):

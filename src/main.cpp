@@ -9,7 +9,11 @@
 #include "cpp/fft_transformer.h"
 #include "cpp/gradient_response.h"
 #include "cpp/metrics.h"
+#include "cpp/mass_tracker.h"
+#include "cpp/profile_generator.h"
 
+// To allow for the '"param"_a' shorthand
+using pybind11::literals::operator""_a;
 namespace py = pybind11;
 
 PYBIND11_MODULE(_core, m) {
@@ -71,16 +75,6 @@ PYBIND11_MODULE(_core, m) {
       .def("pick_lens", &massim::TransformList::pick_lens, "",
 	   py::arg("mean_len"), py::arg("size"), py::arg("rng"));
 
-  py::class_<massim::TransformTracker>(m, "TransformTracker")
-      .def(py::init<massim::ConstArrayRef, double>(),
-           "", "mass_deltas", "tolerance_ppm")
-      .def("contains", &massim::TransformTracker::contains, "",
-	   py::arg("test_mass"))
-      .def("add_mass", &massim::TransformTracker::add_mass, "",
-	   py::arg("mass"))
-      .def("counts", &massim::TransformTracker::counts, "")
-      .def("total_count", &massim::TransformTracker::total_count, "")
-      .def("masses", &massim::TransformTracker::masses, "");
   
   py::class_<massim::TandemTransformer>(m, "TandemTransformer")
       .def(py::init < massim::ConstMatRef, massim::ConstArrayRef,
@@ -109,26 +103,42 @@ PYBIND11_MODULE(_core, m) {
   py::class_<massim::ProfileGenerator>(m, "ProfileGenerator")
       .def(py::init<int, const massim::TransformList &,
                     const massim::Distribution &,
-                    double, double, double, double, massim::PickMassMode,
-	   double, double>(), "doc",
+                    double, double, double, double, double,double>(), "doc",
            py::arg("num_profiles"), py::arg("transforms"),
            py::arg("intensity_scale"), 
            py::arg("mass_min") = 150.0, py::arg("mass_max") = 1200.0,
            py::arg("min_intensity") = 1e-6,
            py::arg("thresh_ppm") = 1.0,
-           py::arg("mass_mode") = massim::PICK_BY_FREQ,
-	   py::arg("mass_center")=600.0,
-	   py::arg("mass_scale")=100.0
+	   py::arg("preweight")=1.0,
+	   py::arg("weight_exponent")=2.0
            )
-      .def("apply_transforms", &massim::ProfileGenerator::apply_transforms,
-           "doc", py::arg("rng"), py::arg("targ_components") = 0,
-           py::arg("target_masses") = 0)
-      .def("weight_peak", &massim::ProfileGenerator::weight_peak, "doc",
-	   py::arg("mass"))
-      .def("set_component", &massim::ProfileGenerator::set_component, "doc",
-           py::arg("profile_id"), py::arg("mass"), py::arg("weight"),
-	   py::arg("overwrite")=true)
-      .def("profiles", &massim::ProfileGenerator::profiles,
+    // Getters/Setters
+    .def_property("preweight",
+		  py::overload_cast<>(&massim::ProfileGenerator::preweight, py::const_),
+		  py::overload_cast<double>(&massim::ProfileGenerator::preweight)
+      )
+    .def_property("weight_exponent",
+		  py::overload_cast<>(&massim::ProfileGenerator::weight_exponent, py::const_),
+		  py::overload_cast<double>(&massim::ProfileGenerator::weight_exponent)
+      )
+    .def_property("mass_min",
+		  py::overload_cast<>(&massim::ProfileGenerator::mass_min, py::const_),
+		  py::overload_cast<double>(&massim::ProfileGenerator::mass_min)
+      )
+    .def_property("mass_max",
+		  py::overload_cast<>(&massim::ProfileGenerator::mass_max, py::const_),
+		  py::overload_cast<double>(&massim::ProfileGenerator::mass_max)
+      )
+    .def_property("term_probs",
+		  py::overload_cast<>(&massim::ProfileGenerator::term_probs, py::const_),
+		  py::overload_cast<const massim::ArrayType&>(&massim::ProfileGenerator::term_probs)
+      )
+    .def_property("enable_termination",
+		  py::overload_cast<>(&massim::ProfileGenerator::enable_termination, py::const_),
+		  py::overload_cast<bool>(&massim::ProfileGenerator::enable_termination)
+      )
+    // Getters for computed values:
+          .def("profiles", &massim::ProfileGenerator::profiles,
 	 "doc")
     .def("masses", &massim::ProfileGenerator::masses,
 	 "doc")
@@ -136,17 +146,92 @@ PYBIND11_MODULE(_core, m) {
 	"doc")
     .def("num_masses", &massim::ProfileGenerator::num_masses,
 	"doc")
-    .def("num_components", &massim::ProfileGenerator::num_components,
-	 "doc")
+    .def("weights", &massim::ProfileGenerator::weights,
+	"doc")
+    .def("counts", &massim::ProfileGenerator::counts,
+	"doc")
     .def("stats", &massim::ProfileGenerator::stats,
-	 "doc");
+	 "doc")
+    // Computations:
+    .def("apply_transforms", &massim::ProfileGenerator::apply_transforms,
+	 "doc", py::arg("targ_components"), py::arg("rng"))
+    .def("update_component", &massim::ProfileGenerator::update_component, "doc",
+           py::arg("profile_id"), py::arg("mass"), py::arg("intensity"))
 
-  py::class_<massim::ProfileGenerator::ProfileResult>(m, "ProfileResult")
-      .def_readonly("indices", &massim::ProfileGenerator::ProfileResult::indices)
-      .def_readonly("weights", &massim::ProfileGenerator::ProfileResult::weights);
+    ;
 
+  py::class_<massim::ProfileResult>(m, "ProfileResult")
+      .def_readonly("indices", &massim::ProfileResult::indices)
+      .def_readonly("intensities", &massim::ProfileResult::intensities);
+
+  // Mass Tracker
+  py::enum_<massim::TransformMassMode>(m, "TransformMassMode")
+      .value("MODE_STRICT", massim::MODE_STRICT)
+      .value("MODE_MODERATE", massim::MODE_MODERATE)
+      .value("MODE_LAX", massim::MODE_LAX)
+      .export_values();
+
+  py::class_<massim::MassTracker>(m, "MassTracker")
+      .def(py::init<massim::ConstArrayRef, double, massim::TransformMassMode,
+                    bool, bool>(),
+           "mass_deltas"_a, "tolerance_ppm"_a, "mode"_a,
+           "strict_count"_a = false, "track_applications"_a = false)
+      .def("size", &massim::MassTracker::size, "" )
+      .def("find_mass", &massim::MassTracker::find_mass, "", "test_mass"_a)
+      .def("find_mass_by_id", &massim::MassTracker::find_mass_by_id, "", "mass_id"_a)
+      .def("contains_mass_id", &massim::MassTracker::contains_mass_id, "", "mass_id"_a)
+      .def("contains_xfrm_by_id", &massim::MassTracker::contains_xfrm_by_id,
+           "", "mass_id"_a, "xfrm_id"_a)
+      .def("contains_xfrm_by_mass", &massim::MassTracker::contains_xfrm_by_mass,
+           "", "mass"_a, "xfrm_id"_a)
+      .def("insert_mass", &massim::MassTracker::insert_mass, "", "mass"_a,
+           "force_insert"_a = false, "mass_id"_a = -1)
+      .def("insert_masses",
+           &massim::MassTracker::template insert_masses<massim::ConstArrayRef>,
+           "", "masses"_a,
+           "force_insert"_a = false)
+      .def("counts", &massim::MassTracker::counts, "")
+      .def("applications", &massim::MassTracker::applications, "")
+      .def("sorted_applications", &massim::MassTracker::sorted_applications, "")
+      .def("total_count", &massim::MassTracker::total_count, "")
+      .def("masses", &massim::MassTracker::masses, "")
+      .def("mass_ids", &massim::MassTracker::mass_ids, "")
+      .def("get_seen", &massim::MassTracker::get_seen, "")
+      .def(py::pickle([](const massim::MassTracker &mt) {
+        return py::make_tuple(mt.mass_deltas(), mt.tolerance_ppm(),
+                              mt.mass_mode(), mt.strict_count(),
+                              mt.track_applications(),                              
+                              mt.get_massmap(), mt.get_seen(), mt.counts(),
+			      mt.applications());
+          },
+          [](py::tuple t) {
+            if (t.size() != 9)
+              throw std::runtime_error("Invalid state");
+
+            massim::ArrayType mass_deltas(t[0].cast<massim::ConstArrayRef>());
+            double tol_ppm(t[1].cast<double>());
+            massim::TransformMassMode mode(t[2].cast<massim::TransformMassMode>());
+            bool strict(t[3].cast<bool>());
+            bool track_apps(t[4].cast<bool>());
+
+            massim::MassTracker result(mass_deltas, tol_ppm, mode, strict,
+                                       track_apps);            
+            result.set_state(t[5].cast<std::map<double, size_t>>(),
+                             t[6].cast<std::vector<std::pair<size_t, int>>>(),
+                             t[7].cast<massim::IntArrayType>(),
+                             t[8].cast<massim::MassTracker::applications_t>());
+	    return result;
+            
+	  }
+	       )
+	  );
+  m.def("track_transforms", &massim::track_transforms,
+        "Find all transformations occurring in a list of masses.",
+	"masses"_a, "mass_deltas"_a, "err_ppm"_a, "err_mode"_a);
   
 
+
+  
   // Metrics
   m.def("compute_aff", &massim::compute_aff,
       "Compute the affinity matrix from a similarity matrix",

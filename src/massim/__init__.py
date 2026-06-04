@@ -12,7 +12,11 @@ except ImportError:
 from .distributions import *
 from .gradient_response import GradientResponse, BetaResponse
 from .mass_distribution import RandomMasses, MassListPicker
-from .species_config import SpeciesGroupConfig, GenSpeciesStage, GenCoreStage
+from .species_config import (
+    SpeciesGroupConfig,
+    GenSpeciesStage,
+    GenCoreStage,
+    quick_compas)
 from .sampling import *
 from .experiment import (Experiment,
                          Message,
