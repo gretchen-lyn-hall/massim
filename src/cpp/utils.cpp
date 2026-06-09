@@ -1,6 +1,7 @@
 #include "utils.h"
 #include <iostream>
-
+#include <queue>
+#include <execution>
 namespace massim {
 
 int adjust_masses(Eigen::Ref<ArrayType> masses, const ArrayType &valid_masses) {
@@ -28,7 +29,7 @@ typedef std::vector<diffrec_t> difflist_t;
 difflist_t diffsort(const ArrayType &masses) {
   int N2 = masses.size() * (masses.size() - 1) / 2;
   std::vector<ArrayType> rows;
-  std::priority_queue<heapent_t, std::vector<heapent_t>, std::greater<heapent_t>> heap;  
+  std::priority_queue<heapent_t, std::vector<heapent_t>, decltype(std::greater<heapent_t>())> heap;  
   difflist_t result(N2);
   VecType last_row = masses;
   VecType next_row;
@@ -112,7 +113,7 @@ find_transforms(const VecType &masses, const VecType &xfrm_masses,
     }
 
   std::sort(std::execution::par_unseq, diffs.begin(), diffs.end());
-
+  
   std::vector<std::tuple<int, int, int>> result;
   auto scan_start = diffs.begin();
 

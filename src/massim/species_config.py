@@ -32,7 +32,9 @@ CIA_DB = "WHOI_CIA_DB_2016_11_21.parquet"
 
 def quick_compas(n_species, n_samples, n_grads, A0 = 100,
                  mode=None, beta_div=1, eq_major=0, sample_method="grid",
-                 min_bound=0, max_bound=100):
+                 min_bound=0, max_bound=100,
+                 species_name="species",
+                 sampler_name="sampler"):
     """
     Set up a simple compas simulation for a given number of gradients, species, and samples.
     The simulation uses only a single species group, configures with the parameters:
@@ -112,7 +114,7 @@ def quick_compas(n_species, n_samples, n_grads, A0 = 100,
             if not all(isinstance(x, int) for x in n_samples):
                 raise ValueError("`n_samples` must be an integer or list of integers of length `n_grads`.")
     
-    spcs = SpeciesGroupConfig.BasicConfig("species",
+    spcs = SpeciesGroupConfig.BasicConfig(species_name,
                                           grads,
                                           n_species,
                                           A0=A0,
@@ -121,17 +123,17 @@ def quick_compas(n_species, n_samples, n_grads, A0 = 100,
                                           eq_major=eq_major)
     match (sample_method):
         case "random":
-            samp = RandomSampler("random", n_samples);
+            samp = RandomSampler(sampler_name, n_samples);
             for idx, grad in enumerate(grads):
                 samp.add_gradient(grad, UniformDistribution(min_bound[idx], max_bound[idx]))
         case "grid":
             if isinstance(n_samples, int):
                 n_samples = [int(n_samples**(1/n_grads))] * n_grads
-            samp = GridSampler("random")
+            samp = GridSampler(sampler_name)
             for idx, grad in enumerate(grads):
                 samp.add_gradient(grad, n_samples[idx], min_bound[idx], max_bound[idx])
         case "transect":
-            samp = TransectSampler("random", n_samples)
+            samp = TransectSampler(sampler_name, n_samples)
             for idx, grad in enumerate(grads):
                 samp.add_gradient(grad, min_bound[idx], max_bound[idx])
         case _:

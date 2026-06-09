@@ -1,3 +1,231 @@
+"""Define and run MASSIM simulation experiments.
+
+Basic Concepts:
+---------------
+
+A MASSIM "Experiment" is a way to define ensembles of simulations, with each
+simulation built up as a pipeline of relatively simple stages. Each stage acts
+as a processing step that can modify data from the stages before it. An
+Experiment can be as simple as generating a single output from a single stage,
+or it can define parameter sweeps, replicates, and multiple treatments.
+
+When an Experiment is run, it generates an ensemble of ExperimentResults. 
+Each ExperimentResult typically contains a complete synthetic FT-ICR dataset,
+consisting of an intensity matrix, metabolite mass and metadata, and
+sampling location and metadata.
+(There are some exceptions to this, depending on how the Experiment
+is set up; an ExperimentResult can contain results from intermediate stages
+such as species abundance. However, the typical expectation is that the output
+is a mass spec simulation).
+
+As stated, an Experiment is built up as a pipeline of simpler stages. These
+stages can roughly be broken down into generators (create new data from
+simulation parameters), data transformers (modify data from previous stages)
+and control (create replicates and parameter sweeps). Each stage feeds its
+output forward to the next stage in the pipeline. For repeating stages (
+such as replicates and parameter sweeps), the input data is saved and
+all downstream (following) stages will be repeated with the same input.
+
+As an example, a pipeline might have the structure (Note - this is pseudocode;
+for details on how to set up experimenta and parameter sweeps, consult the
+class documentation.)
+
+ParameterSweepStage(species_turnover=(1 to 5), n=10)
+ -> COMPASSimStage
+   -> ReplicateStage(replicates=5)
+      -> GaussianNoiseStage
+
+(Here, COMPASSimStage uses the COMPAS ecological simulation algorithm to
+simulate species abundance across a virtual landscape. It doesn't produce
+FT-ICR spectra directly, but it is often used in tandem with other stages.)
+
+The above experiment would produce 50 outputs. It would vary the
+`species_turnover` parameter from 1 to 5 in 10 steps. For each value,
+it would create and run a COMPAS simulation to produce a species-abundance
+output. For each COMPAS output, the output is replicated 5 times, and gaussian
+noise is applied.
+
+Pipelines can be more complex than the above; they can fork (to output, say,
+different noise treatments), and intermediate results can be returned as well
+(if you want to compare the raw COMPAS output to the noised output)
+
+The same experiment can be run multiple times. Since most simulation stages use
+a random number generator, the results will be different each run (unless
+you explicitly seed the RNG).
+
+
+Experiment Outputs:
+-------------------------
+
+Experiments are defined as pipelines of stages. By default, the outputs of
+an Experiment will be the outputs of all terminal stages (that is, stages that
+don't act as inputs to other stages). However, intermediate results can be
+returned as well.
+
+Consider the following experiment
+
+exp = Experiment("test")
+exp.set_stages(my_stage_1=...
+               rep_1=ReplicateStage(n_replicates=5),
+               my_stage_2=...
+               rep_2=ReplicateStage(n_replicates=10),
+               my_final_stage=...)
+
+Here, I've named the stages 'my_stage_1', 'rep_1', etc., but you can choose
+whatever names you desire.
+
+By default, running the experiment will only output results from
+`my_final_stage`. We can enable output from other stages with:
+
+exp["my_stage_2"].enable_output()
+
+Now, when the experiment is run, outputs from both `my_stage_2` and
+`my_final_stage will be output.
+
+Each output will contain the following properties:
+.df: Pandas dataframe containing the sample x metabolite (or species)  matrix
+.abundance: 2D numpy array of abundances; same values as .df
+.sample_info: Information for each sample (rows of .df), including gradient
+   locations.
+.species_info: Information for each metabolite/species (columns of .df).
+   This includes the species group, and for metabolites the metabolite mass.
+.name: Name of the stage that produced this output
+.run_index: When repeating stages are used, the iteration index for each
+  stage
+
+There are more fields; see ExperimentResult docs for details.
+
+.base_response: 2D numpy array representing the relative presence (0-1) of
+   each metabolite/species. Used for presence/absence noise computation
+
+
+
+Disambiguating outputs:
+-----------------------
+
+When multiple outputs are enabled, or parameter sweeps are used, it may
+be necessary to know which ExperimentResult came from which stage, and
+from which parameter sweep value.
+
+An ExperimentResult has two properties that can be used.
+`ExperimentResult.name` is the name of the stage that produced the result.
+In the example above, the result name would be either `my_stage_2` or
+`my_final_result`. You can use this to conditionally process results:
+
+for result in exp.run():
+  if result.name == "my_final_stage":
+     # process final stage
+  else:
+     # process intermediate.
+
+To determine which replicate and/or which step of the parameter sweep the
+result is from, you can use ExperimentResult.run_index. This returns a
+dictionary with the name of all repeating stages, and the 0-based index.
+For the example above, the run_index would be a dict
+{"rep_1": <int from 0 to 4>,
+ "rep_2": <int from 0 to 10>}
+
+For parameter sweeps, `run_index` only returns the index, not the parameter
+value(s) of the sweep. There is a way to get at the actual values, but
+currently it's a bit ugly.
+
+
+Running Experiments:
+--------------------
+
+Experiments can be run in different ways. The simplest method is to
+run everything at once, with `exp.run_all()`, which returns a list of
+results. However, as each individual output is represented as a large
+metabolite x sample intensity matrix, this approach can consume vast
+amounts of memory.
+
+Instead, there are more memory-efficient ways of running an experiment.
+Bear with me, as I've experimented with multiple methods, and the
+Experiment class is a bit cluttered with my own, er, experiments.
+
+First, it can be run as a generator:
+
+for result in exp.run():
+  # process results
+
+Second, if you just want to run some summary statistics on each result, you
+can use `Experiment.map_mp` or `Experiment.map_sp`. The two are functionally
+equivalent, but `map_mp` uses multiprocessing to run the experiment in parallel
+across multiple CPU cores. This can greatly speed up lengthy experiments, but
+may not work on all platforms or with all stages.
+
+The map_* functions take a function as an input. They then run the experiment,
+applying the function to each enabled output stage, and store the function result.
+The output of the map_* functions is a list of tuples containing:
+- the output's stage name
+- the output's run index
+- the function result.
+
+Similarly, there is the "gather" method. It behaves like the map_* functions,
+except that it expects the function to return a (flat) dictionary of values
+containing summary statistics for each output.
+The summary statistics are then arranged in a DataFrame. Each value in the
+dictionary gets its own column. In addition, the output contains columns
+for:
+- the output name
+- each run index (that is, one column per repeating stage in the experiment)
+
+Messages:
+---------
+
+This is more of an implementation detail, but this is how stages can communicate
+with the Experiment or each other.
+For instance, the ParameterSweep stage uses messages to inform downstream
+stages to modify their parameters, and RepeatingStages use messages to inform
+the Experiment when they need to be repeated, or when all repetitions are
+finished.
+
+A message consists of three parts:
+- `target`: the name of the stage that should receive this message. The special
+   name "__exec__" is used for messages to the Experiment.
+- `name`: really, should be called `command`!
+  - For messages to stages, this can be the name of the parameter to alter
+    (during a parameter sweep, say)
+  - The special name "exec_info" is reserved for messages from the Experiment
+    to a stage
+- `value`: the payload of the message. For parameter change messages, this
+  is the new value of the parameter. Other messages have specified payload
+  types.
+
+Stage State:
+------------
+
+More implementation details:
+
+Running a complex pipeline with potential
+forks, multiple repetitions, changing parameters and multiple outputs
+requires a moderately sophisticated way of handling state. To ensure that a
+stage is run with exactly the parameters it should have, we a State class
+to encapsulate all stage parameters.
+
+When a stage is defined and added to an experiment, the user can set various
+parameters for that stage (e.g. number of species and species turnover in
+a COMPAS stage). Most stage parameters can also be controlled through messages.
+This allows them to be varied via parameter sweeps, or overridden in a particular
+experiment run.
+
+A particular stage may be executed many times in the course of an experiment
+run. When a stage is executed, it first copies all of its user defined
+parameters into a State object. It then processes any parameter change messages.
+These parameter changes only apply to the State object, ensuring that the
+original user defined parameters are untouched. As it executes, the Stage
+takes any parameter values from the State object, which ensures that it
+always has the correct, up to date parameter values.
+
+For simple parameters (scalar values or distributions), the default State
+class already has an implementation to handle the copying and message
+passing. For more complex parameters (or for stages like GenSpeciesStage
+and GenProfileStage that hold multiple, complex configurations), the
+stage will need to define its own State class with its own message handling
+method.
+
+
+"""
 from __future__ import annotations  # Allow forward declaration of types
 
 from abc import ABC, abstractmethod
@@ -51,7 +279,24 @@ class Message:
 
 @dc.dataclass(frozen=True)
 class StageData:
-    """Stage specific data"""
+    """Stage specific data, used to pass data between stages
+
+    In general, this should not be used in user code.
+    It is a dataclass that reserves spots for abundance matrices,
+    species and sample info, and sample coordinates.
+    For stages that produce other types of data, they can store that in
+    the `extra` field.
+
+    Note, this class automatically marks the abundance and base_response
+    fields as *read-only* numpy arrays. This is to prevent one stage from
+    inadvertently modifying its inputs, which could have unintended consequences.
+
+    Stages should always produce output by using the `copy` method to copy their
+    input; any fields that the stage modifies can be replaced using the keyword
+    args. This ensures that a stage passes through any fields that it does not
+    use, but might be needed by downstream stages.
+        
+    """
     
     _: dc.KW_ONLY
     abundance: np.ndarray | None = None
@@ -59,10 +304,10 @@ class StageData:
     responses: list = dc.field(default_factory=list)
     # Raw beta response values, usable for probability
     # in noise routines (possibly after scaling by taking to a power)
-    base_response: np.ndarray|None = None
-    sample_coords: pd.DataFrame|None = None
-    sample_info: pd.DataFrame|None = None
-    species_info: pd.DataFrame|None = None
+    base_response: np.ndarray | None = None
+    sample_coords: pd.DataFrame | None = None
+    sample_info: pd.DataFrame | None = None
+    species_info: pd.DataFrame | None = None
     extra: Dict = dc.field(default_factory=dict)
 
     def __post_init__(self):
@@ -92,12 +337,24 @@ class StageData:
 
                           
 class ExperimentResult:
+    """
+    Class to contain a single result from a MASSIM experiment.
+    
+    While a result can theoretically contain any kind of data, this class
+    is geared towards results that can be expressed as a sample x metabolite
+    or sample x species matrix. Methods are provided to access these matrices,
+    variants of these matrices, and sample and metabolite metadata.
+    """
     def __init__(self,
                  data: StageData,
                  output_name: str,
                  output_index: dict[str, int],
                  messages: dict = None,
                  states: dict = None):
+        """
+        Constructor. Should generally not be called from user code, as it is
+        populated by Experiment.
+        """
         self._output_name = output_name
         self._output_index = output_index
         self._data = data
@@ -112,62 +369,131 @@ class ExperimentResult:
         
     @property
     def name(self) -> str:
+        """
+        Name of the Experiment stage that generated this result.
+        """
         return self._output_name
+
+    @property
+    def run_index(self):
+        """
+        For MASSIM experiments with repeating stages (ReplicateStage or
+        ParameterSweep), indicates which repetition produced this result.
+        Returns a dictionary of <repeating stage name>: <repetition index>.
+        """
+        return self._output_index
+
     
     @property
     def full_id(self) -> str:
+        """
+        String that combines the full name and run index of this result.
+        Of the form
+        "<stage name>_<1st rep stage>_<1st rep index>_<2nd rep stage>_..."
+        """
         tags = "_".join(f"{k}:{v}" for k, v in self._output_index.items())
-        return self._output_name  + "_" + tags
+        return self._output_name + "_" + tags
 
     @property
     def short_id(self) -> str:
+        """
+        A shorter version of full_id that contains only the name and run
+        indices, and omits the repeating stage names.
+        """
         tags = "_".join(f"{v}" for k, v in self._output_index.items())
-        return self._output_name  + "_" + tags
+        return self._output_name + "_" + tags
 
-    def get_index(self, key_or_pos: str|int):
+    def get_index(self, key_or_pos: str | int):
+        """
+        Get a particular entry in the run index, either by position (if
+        `key_or_pos` is an integer) or by name.
+        """
         if isinstance(key_or_pos, int):
             if key_or_pos > len(self._output_index):
                 raise KeyError("Output index out of range.")
             key_or_pos = list(self._output_index.keys())[key_or_pos]
         return self._output_index[key_or_pos]
 
-    @property
-    def run_index(self):
-        return self._output_index
 
     @property
     def run_index_short(self):
+        """
+        Like run_index, but only returns a tuple of run indices, and not
+        the repeating stage names.
+        """
         return list(self._output_index.values())
 
     @property
     def df(self) -> pd.DataFrame:
+        """
+        Return the sample x metabolite (or sample x species) abundance matrix
+        of the output, expressed as a Pandas dataframe.
+        The rows are indexed identically to this result's `sample_info`,
+        and the columns are indexed identically to this result's `species_info`.
+        """
         return pd.DataFrame(self._data.abundance,
                             index=self._data.sample_info.index,
                             columns=self._data.species_info.index)
+
     @property
     def dfmass(self) -> pd.DataFrame:
+        """
+        Return the sample x metabolite abundance matrix
+        of the output, expressed as a Pandas dataframe.
+        Like the `df` property, but columns are indexed by metabolite mass,
+        rather than by a simple range index.
+        """
         return pd.DataFrame(self._data.abundance,
                             index=self._data.sample_info.index,
                             columns=self._data.species_info.mass)
 
     @property
     def abundance(self) -> np.ndarray:
+        """
+        Return the sample x metabolite abundance matrix as a 2D numpy array.
+        """
         return self._data.abundance
 
     @property
-    def presence(self) ->np.ndarray:
+    def presence(self) -> np.ndarray:
+        """
+        Return sample x metabolite/species presence boolean presence matrix
+        as a 2D numpy array. Here, presence is defined as strictly positive
+        entries in the abundance matrix.
+        """
         return self._data.abundance > 0
     
     @property
     def sample_info(self) -> pd.DataFrame:
+        """Return metatada about the samples, expressed as a Pandas
+        DataFrame.
+        Typically contains a generated sample name, as
+        well as sampling locations (gradient coordinates).
+
+        """
         return self._data.sample_info
 
     @property
     def sample_coords(self) -> pd.DataFrame:
+        """
+        Return sample coordinates as a Pandas DataFrame.
+        Typically, sampling coordinates are gradient locations in a
+        virtual landscape, with each gradient spanning from 0-100.
+        Columns are indexed by gradient name, and rows by sample id.
+        """
         return self._data.sample_coords
 
     @property
     def species_info(self) -> pd.DataFrame:
+        """Return metadata about abundance matrix columns.
+
+        Here 'species' is used as a general term; for the output of
+        COMPAS simulations, it refers to biological species, whereas
+        for metabolite outputs it refers to chemical species.
+        For metabolite outputs, this dataframe contains a 'mass' column,
+        which represents neutral metabolite mass.
+
+        """
         return self._data.species_info
     
     
@@ -176,6 +502,27 @@ def _empty_np():
 
 @dc.dataclass(frozen=True)
 class PipelineData:
+    """
+    A wrapper class for passing data between stages and the Experiment.
+
+    In general, should not be accessed by user code.
+    
+    While the StageData class contains the numerical simulation data to be
+    passed between stages, the PipelineData contains additional data necessary
+    for managing the pipeline execution.
+
+    In particular it contains:
+    - `messages`: a list of messages to pass to and from a stage and the
+       executor (the Experiment).  Messages can also be passed from one stage
+       to downsteam stages.
+    - `rng`: the current state of the random number generator. Some states
+       may work by `freezing` the rng at a particular state; this method allows
+       them to pass the frozen state downstream.
+    - `states`: a history of Stage states for all *upstream* (prior) stages.
+       This is used to track the provenance of every output; i.e. so that
+       we can associate
+    
+    """
     data: StageData
     messages: list[Message]
     rng: np.random.Generator
@@ -192,8 +539,41 @@ class PipelineData:
             self.messages[:] = [m for m in self.messages if m.target != target]
         return result
 
+    
 class StageParameter:
+    """
+    Class that can be used within a Stage to specify a user-configurable
+    parameter.
+
+    This is a convenience for supplying stages with configurable parameters,
+    with a whole bunch of mechanisms to automatically handle common cases.
+    
+    In particular, if a Stage defines a StageParameter (by specifying it as
+    a *class* member), then the following functionality is enabled:
+    - Automatic initialization of the parameter from constructor keyword
+      arguments. E.g., something like: MyState(my_param=5)
+    - All StageParameters are automatically copied to the Stage's State class
+      upon every stage execution.
+    - Automatic message handling: Any message with the same name as the
+      StageParameter will be used to update the parameter's value in the
+      State instance.
+
+
+    Usage:
+    class MyStage(Stage):
+       my_param = StageParameter(<type>, <default_value>, [<optional message parser>])
+       my_int_param = StageParameter(int, 5)
+       my_dist_param = StageParameter(Distribution, NormalDistribution(0,1),
+                                      msg_parser=dist_parser)
+
+       def __init__(self, **kwargs):
+          super().__init__(**kwargs)
+          # handles `MyStage(my_int_param=7, my_dist_param=UniformDistribution(0, 1))          
+    """
     class Instance:
+        """
+        Generates an instance member from StageParameter
+        """
         def __init__(self, parent: StageParameter,
                      name: str):
             self.parent = parent
@@ -211,8 +591,16 @@ class StageParameter:
         self.type_ = type_
         self.default = default
         self.parser = msg_parser
-        
+ 
 def dist_parser(payload):
+    """
+    Message parser for distribution objects.
+    Can parse messages where the message value is:
+    - A Distribution instance (just copies the distribution)
+    - A dict, with the key "dist_type" for the name of the distribution,
+      and keys for each of the distribution parameters.
+      E.g. {"dist_type": "normal", "mean": 0, "std": 1}
+    """
     if isinstance(payload, Distribution):
         return payload
     if not isinstance(payload, dict):
@@ -284,6 +672,10 @@ class Stage(ABC):
         Stage.get_state)
         """
         def __init__(self, stage: Stage):
+            """
+            Default Stage.State constructor.
+            Copies all its parent stage's StageParameter values into itself.
+            """
             self.stage = stage
             self.exec_info = {}
             for param in stage._params.values():
@@ -323,6 +715,10 @@ class Stage(ABC):
                 pass
 
     def __new__(cls, *args, **kwargs):
+        """
+        Python magic mumbo jumbo to handle StageParameters and convert them
+        into object members.
+        """
         result = object.__new__(cls)
         params = {}
         for key, val in cls.__dict__.items():
@@ -334,10 +730,21 @@ class Stage(ABC):
     
     @abstractmethod
     def default_name(self) -> str:
+        """
+        This is a bit overkill, since the Experiment provides such an
+        easy way to specify names.
+        However, if a name *isn't* provided when defining an experiment,
+        this method is called to generate a base name for the stage.
+        Multiple stages will have names based off `default_name`
+        (e.g. `DefaultName1`, `DefaultName2`, etc.
+        """
         pass
 
     def __init__(self, stage_seed: int|list[int]|None = None, **kwargs):
         """
+        Constructor that handles the base Stage construction. Must be
+        called by all subclasses.
+        
         If stage_seed is set, then all random computations for this stage
         will start at the same point. This essentially fixes the effect of
         this stage. This does not effect downstream random generation.
@@ -369,8 +776,22 @@ class Stage(ABC):
             input: PipelineData,
             as_name: str,
             debug=False,
-            ) -> PipelineData :
+            ) -> PipelineData:
+        """
+        Handle the housekeeping associated with running this stage.
 
+        Most Stage subclasses will *not* need to override this method;
+        they should only override `execute`.
+        
+        This method is responsible for ensuring the stage input has
+        all the REQUIRED fields, generating the Stage.State for this
+        execution, parsing messages,  handling RNG freezing, and running
+        the stage's `execute` method.
+
+        This is called with the input PipelineData, as well as this stage's
+        name in the experiment. Optionally, if 'debug' is set,
+        the stage's `execute` method will be run in the debugger.
+        """
         has_fields = input.data.has_fields()
         missing = set(self.__class__.REQUIRES).difference(has_fields)
         if len(missing) > 0:
@@ -402,6 +823,9 @@ class Stage(ABC):
     def execute(self, input: StageData,
                 rng: np.random.Generator,
                 state: Stage.State) -> PipelineData:
+        """
+        Abstract data processing method. MUST be overridden by subclasses.
+        """
         pass
 
 class ComboStage(Stage):
@@ -454,16 +878,14 @@ class ComboStage(Stage):
     you can't include multiple copies of the same stage in a ComboStage. If
     there is an overlap, it will be detected the first time an instance of the
     ComboStage subclass is created, and an AttributeError will be raised.
-    
-
     """
-    SUBSTAGES = [] # list of name/class pairs
+    SUBSTAGES = []  # list of name/class pairs
     DEFAULT_NAME = "Combo"
     
     def default_name(self):
         return self.__class__.DEFAULT_NAME
 
-    def __init__(self, stage_seed: int|list[int]|None = None, **kwargs):
+    def __init__(self, stage_seed: int | list[int] | None = None, **kwargs):
         import inspect
         sub_cls = self.__class__.SUBSTAGES
         sigs = [inspect.signature(cls.__init__)
@@ -517,7 +939,7 @@ class ComboStage(Stage):
             input: PipelineData,
             as_name: str,
             debug=False
-            ) -> PipelineData :
+            ) -> PipelineData:
         start_rng = input.rng
         if self.stage_seed is not None:
             input = input.copy(rng=np.random.default_rng(self.stage_seed))
@@ -560,14 +982,12 @@ class ComboStage(Stage):
         
         return input
 
-
     def execute(self, input: StageData,
                 rng: np.random.Generator,
                 state: Stage.State) -> PipelineData:
-        # Only the substages `execute` methods get called.
+        # We overrode the 'run` method to directly call the substages'
+        # execute methods.
         raise NotImplementedError("Should never get here")
-
-    
                 
 
 class OutputFilter:
@@ -614,9 +1034,7 @@ class OutputFilter:
         return input.copy(abundance=abundance,
                           base_response=base_response,
                           species_info=species_info)
-                          
 
-        
 
 class Experiment:
     """ Class for configuring and running a virtual simulation experiment.
@@ -644,10 +1062,7 @@ class Experiment:
     However, outputs for any inner stage can be enabled:
 
     Ex:
-    exp['nois'].enable_output(output_name="pre-transform")
-
-    (The output_name is optional; by default, the outputs are named after
-    their stage name)
+    exp['nois'].enable_output(True)
 
     Running an experiement produces a sequence of results. For experiments
     with forks or multiple outputs, you can tell which stage it came from
@@ -673,6 +1088,16 @@ class Experiment:
     """
 
     class Node:
+        """
+        The Node class is used to wrap each experiment Stage. It contains all
+        the information necessary to run the Stage as part of an experiment
+        pipeline; the stage's name in the experiment, its position in the
+        pipeline, whether the stage should be output, etc.
+
+        User code should not usually create or run nodes directly.
+        The Experiment exposes the nodes for the purposes of using the
+        `link_stage`, `add_stages`, and `enable_output` methods.
+        """
         def __init__(self,
                      experiment: Experiment,
                      stage: Stage,
@@ -686,6 +1111,7 @@ class Experiment:
             self.output_name = self.name
             self.output_result = enable_output
             self.debug = False
+            self.output_filter = None
             if enable_output:
                 if isinstance(enable_output, str):
                     self.output_name = enable_output
@@ -693,7 +1119,21 @@ class Experiment:
         def link_stage(self,
                        stage: Stage,
                        name: str | None = None):
-            name = self.parent.check_name(stage, name)
+            """
+            Add the given `stage` to this experiment, to follow directly
+            after this node's stage.
+
+            This method can be used to create a forking pipeline. The
+            output from this stage can be fed into an arbitrary number
+            of downstream stages.
+
+            Usage:
+            exp = Experiment("test")
+            exp.set_stages(stage1=..., stage2=..., stage3=...)
+            # Fork stage 2 to also output into a new stage:
+            exp["stage_2"].link_stage(SomeStage(), name="stage_3_alt")
+            """
+            name = self.parent._check_name(stage, name)
             out_node = Experiment.Node(self.parent,
                                        stage,
                                        name)
@@ -703,6 +1143,19 @@ class Experiment:
 
         def add_stages(self, *stages, **named_stages):
             """Add a chain of one or more stages after this node
+
+            This method can be used to add a fork to a pipeline. Output
+            from this stage will be sent into the sub_pipeline specified
+            in the arguments.
+
+            Usage:
+            exp = Experiment("test")
+            exp.set_stages(stage1=..., stage2=..., stage3=...)
+
+            # Fork stage 2 to also output into stage4->stage5
+            exp["stage_2"].add_stages(stage4=SomeStage(),
+                                      stage5=SomeOtherStage())
+
             """
             tail = self
 
@@ -718,29 +1171,50 @@ class Experiment:
                     tail = tail.link_stage(stage, name=name)
             return tail
 
-
         def enable_output(self,
-                          output_name=None,
-                          enable_output=True,
+                          val: bool = True,
+                          output_name: str | None = None,
+                          output_filter: Callable | None = None
                           ) -> None:
-            self.output_result = enable_output
-            if output_name:
-                self.output_name = output_name
-                          
+            """
+            Request that this stage output its results, even if it is
+            an intermediate stage.
 
+            Output can be enabled or disabled by passing a bool (default
+            True).
+            The name of the output's ExperimentResult can be defined; by
+            default it is equal to the stage's name in the experiment.
+
+            Optionally, a filter can be applied to the output. This filter
+            can be any callable, or an OutputFilter instance. The purpose
+            is to perform any common preprocessing (intensity thresholding,
+            normalization, etc) on the outputs.
+            """
+            if val is None:
+                val = True
+            if isinstance(val, bool):
+                self.output_result = val
+            if self.output_result:
+                if output_name is not None:
+                    self.output_name = output_name
+                self.output_filter = output_filter
+                
         def _prepare(self) -> None:
+            """
+            Prepare this node at the beginning of an experiment run.
+            """
             self.run_count = 0
 
-        def run(self,
-                in_result: PipelineData,
-                exec_count: int) -> PipelineData:
+        def _run(self,
+                 in_result: PipelineData,
+                 exec_count: int) -> PipelineData:
             self.run_count += 1
             node_msgs = in_result.target_messages(self.name)
             other_msgs = [m for m in in_result.messages if m.target != self.name]
             node_msgs.append(Message("*",
                                      "exec_info",
                                      exec_count=exec_count,
-                                     first_run=self.run_count==1,
+                                     first_run=self.run_count == 1,
                                      node_name=self.name
                                      ))
             try:
@@ -750,14 +1224,18 @@ class Experiment:
             except Exception as e:
                 e.add_note(f"Encountered while in stage {self.name}")
                 raise
-            return out_result.copy(messages = node_msgs + other_msgs + out_result.messages)
+            return out_result.copy(messages=node_msgs + other_msgs + out_result.messages)
 
-        def build_out_tree(self, tree: Experiment.OutTree) -> None:
+        def _build_out_tree(self, tree: Experiment.OutTree) -> None:
             for child in self.consumers:
                 tree.add_node(self.name, child.name)
-                child.build_out_tree(tree)
+                child._build_out_tree(tree)
 
     class OutTreeNode:
+        """
+        Ignore for now. Supposed to be a nice way of arranging outputs,
+        but unfinished.
+        """
         def __init__(self, name: str):
             self._name = name
             self._children: dict[str, Experiment.OutTreeNode] = {}
@@ -814,6 +1292,9 @@ class Experiment:
             
 
     def __init__(self, name: str | None, output_filter: Callable|None = None):
+        """
+        Initialize the experiment
+        """
         self.root: Experiment.Node | None = None
         self.name = name
         self.default_names = defaultdict(int)
@@ -821,15 +1302,15 @@ class Experiment:
         self.all_nodes: dict[str, Experiment.Node] = {}
         self.output_filter = output_filter
 
-
-    def _build_out_tree(self) -> Experiment.OutTree:
-        if self.root is None:
-            raise ValueError("No stages have been added to experiment.")
-        tree = Experiment.OutTree(self.root.name)
-        self.root.build_out_tree(tree)
-        return tree
-    
     def set_output_filter(self, output_filter: Callable|None):
+        """
+        Sets a filter to apply to output before returning it.
+        Individual stages can have their own filters applied to them;
+        this filter, if set, is only applied to stages that do not already have
+        a filter.
+        The filter can be any callable that takes a PipelineData, and
+        should return the same type.
+        """
         self.output_filter = output_filter
 
     def set_stages(self, *stages, **named_stages):
@@ -873,12 +1354,19 @@ class Experiment:
 
 
     def __getitem__(self, node_name):
+        """
+        Access a stage's node by name.
+        """
         return self.all_nodes[node_name]
 
     def debug_stage(self, node_name, enable=True):
+        """
+        Turn on debugging for the given stage. The code will enter the
+        debugger when the stage's `execute` method is run.
+        """
         self.all_nodes[node_name].debug = enable
 
-    def check_name(self, stage: Stage, name: str | None) -> str:
+    def _check_name(self, stage: Stage, name: str | None) -> str:
         if name is None:
             default_name = stage.default_name()
             self.default_names[default_name] += 1
@@ -891,7 +1379,7 @@ class Experiment:
         if self.root is not None:
             raise ValueError("Experiment already has start stage "
                              f"'{self.root.name}'.")
-        name = self.check_name(stage, name)
+        name = self._check_name(stage, name)
         self.root = Experiment.Node(self, stage, name)
         self.all_nodes[name] = self.root
         return self.root
@@ -1022,7 +1510,9 @@ class Experiment:
         """
         cur_node, cur_input, cur_count, run_idx = exec_item
         out_data = result.data
-        if self.output_filter:
+        if cur_node.output_filter is not None:
+            out_data = cur_node.output_filter(out_data)  
+        elif self.output_filter:
             out_data = self.output_filter(out_data)
         out_result = ExperimentResult(out_data,
                                       cur_node.output_name,
@@ -1071,7 +1561,7 @@ class Experiment:
                         # and then enqueue all child nodes.
                         assert cur_count == 0
                         while 1:                            
-                            next_result = cur_node.run(cur_input, cur_count)
+                            next_result = cur_node._run(cur_input, cur_count)
                             run_idx = run_idx.copy()
                             run_idx[cur_node.name] = cur_count
                             exp_msgs = next_result.target_messages("__exec__", remove=True)
@@ -1094,8 +1584,8 @@ class Experiment:
                             exec_q.put((fork_limit - 1, queue_item))
                             cur_count += 1                            
                     else:
-                        next_result = cur_node.run(cur_input,
-                                                   cur_count)
+                        next_result = cur_node._run(cur_input,
+                                                    cur_count)
                     
                     exp._handle_stack_item(exec_stack, cur_exec_item, next_result)
 
@@ -1160,7 +1650,7 @@ class Experiment:
                 raise ValueError(f"Message with unknown target "
                                  f"'{msg.target}'.")
 
-        init_result = PipelineData(StageData(), messages=messages, rng = rng)
+        init_result = PipelineData(StageData(), messages=messages, rng=rng)
 
         # Prime the traversal with the root node and initial result.
         Experiment._push_exec(exec_stack, self.root, init_result, 0, {})
@@ -1168,11 +1658,11 @@ class Experiment:
         while exec_stack:
             step_count += 1
             # Run the next stage
-            cur_exec_item = exec_stack.pop();
+            cur_exec_item = exec_stack.pop()
             cur_node, cur_input, cur_count, run_idx = cur_exec_item
             if not dry_run or isinstance(cur_node.stage, RepeatingStage):
-                next_result = cur_node.run(cur_input,
-                                           cur_count)
+                next_result = cur_node._run(cur_input,
+                                            cur_count)
             else:
                 next_result = cur_input
 
@@ -1180,14 +1670,13 @@ class Experiment:
 
             if cur_node.output_result or len(cur_node.consumers) == 0:
                 if dry_run:
-                     yield run_idx
+                    yield run_idx
                 else:
                     yield self._prepare_output(cur_exec_item, next_result)
 
-
     def map_mp(self,
                messages=None,
-               rng_or_seed:np.random.Generator|int|None = None,
+               rng_or_seed: np.random.Generator | int | None = None,
                map_func=None,
                mp_mode="fork",
                num_procs=None,
@@ -1199,7 +1688,6 @@ class Experiment:
 
         logger = get_logger()
 
-        step_count = 0
         rng = RNG(rng_or_seed)
         # Essentially, this is just a depth-first traversal of the
         # experiment tree.
@@ -1211,8 +1699,6 @@ class Experiment:
         # sequence). This functionality probably wont work in mp-mode.
         self._prepare()
         
-        exec_stack: list[Experiment._ExecItem] = []
-
         if messages is None:
             messages = []
         elif not isinstance(messages, list):
@@ -1250,10 +1736,9 @@ class Experiment:
 
         return result
 
-
     def map_sp(self,
                messages=None,
-               rng_or_seed:np.random.Generator|int|None = None,
+               rng_or_seed : np.random.Generator | int | None = None,
                map_func=None,
                fork_limit=2):
         """Run the experiment.
@@ -1262,9 +1747,6 @@ class Experiment:
         from multiprocessing import JoinableQueue, Queue, get_logger
         logger = get_logger()
 
-
-
-        step_count = 0
         rng = RNG(rng_or_seed)
         # Essentially, this is just a depth-first traversal of the
         # experiment tree.
@@ -1276,8 +1758,6 @@ class Experiment:
         # sequence). This functionality probably wont work in mp-mode.
         self._prepare()
         
-        exec_stack: list[Experiment._ExecItem] = []
-
         if messages is None:
             messages = []
         elif not isinstance(messages, list):
@@ -1287,7 +1767,7 @@ class Experiment:
                 raise ValueError(f"Message with unknown target "
                                  f"'{msg.target}'.")
 
-        init_result = PipelineData(StageData(), messages=messages, rng = rng)
+        init_result = PipelineData(StageData(), messages=messages, rng=rng)
 
         exec_q = JoinableQueue()
         result_q = Queue()
@@ -1304,26 +1784,23 @@ class Experiment:
             except Empty:
                 break
         
-        return [x[2] for x in result]
-
-
-    
-                    
+        return result
 
     def count_iters(self, messages=None):
-        return  len(list(self.run(messages=messages,
-                                    rng_or_seed=None,
-                                    dry_run=True)))
+        return len(list(self.run(messages=messages,
+                                 rng_or_seed=None,
+                                 dry_run=True)))
+
     def run_all(self,
-            messages=None,
-            rng_or_seed:np.random.Generator|int|None = None,
-            ):
+                messages=None,
+                rng_or_seed: np.random.Generator | int | None = None,
+                ):
         """Run the experient,returning all the dataframes as output.
         If there is a single output stage, the results are returned as a list.
         Otherwise, the results are grouped by name.
         """
         from tqdm import tqdm
-        
+
         num_out = len(list(self.run(messages=messages,
                                     rng_or_seed=None,
                                     dry_run=True)))
@@ -1344,9 +1821,9 @@ class Experiment:
         return NamedTuple("RunResult", [(k, list) for k in temp.keys()])(**temp)
 
     def run_tree(self,
-            messages=None,
-            rng_or_seed:np.random.Generator|int|None = None,
-            ):
+                 messages=None,
+                 rng_or_seed: np.random.Generator | int | None = None,
+                 ):
         """Run the experient,returning all the dataframes as output.
         If there is a single output stage, the results are returned as a list.
         Otherwise, the results are grouped by name.
@@ -1363,9 +1840,7 @@ class Experiment:
                 result.add_output(output)
                 progress_bar.update(1)
 
-
         return result
-
 
     def gather(self, stat_func, messages=None, rng=None):
         """Run the experient, performing statistics on each output, and
@@ -1400,7 +1875,7 @@ class RepeatingStage(Stage):
     """ Base class for stages that repeat, like replication or parameter
     sweeps.
     """
-    def __init__(self, freeze_rng: bool=False, **kwargs):
+    def __init__(self, freeze_rng: bool = False, **kwargs):
         """
         If 'freeze_rng' is True, then the random number generator is reset
         to the same state for all downstream stages.

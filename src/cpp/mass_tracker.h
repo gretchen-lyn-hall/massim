@@ -3,7 +3,9 @@
 
 #include "common.h"
 #include <cassert>
+#include <unordered_map>
 #include <unordered_set>
+#include <flat_map>
 
 namespace massim {
 
@@ -15,10 +17,17 @@ enum TransformMassMode { MODE_STRICT = 0, MODE_MODERATE = 1, MODE_LAX = 2 };
 // Retrieved 2026-05-26, License - CC BY-SA 3.0
 
 template <class T>
-inline void hash_combine(std::size_t & seed, const T & v)
+void hash_combine(size_t& seed, T const& v)
 {
-    std::hash<T> hasher;
-    seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  // from https://stackoverflow.com/questions/5889238/why-is-xor-the-default-way-to-combine-hashes
+  if constexpr (sizeof(size_t) >= 8u)
+  {
+    seed ^= v + 0x517cc1b727220a95 + (seed << 6u) + (seed >> 2u);
+  }
+  else
+  {
+    seed ^= v + 0x9e3779b9 + (seed << 6u) + (seed >> 2u);
+  }
 }
 
 
@@ -31,8 +40,8 @@ struct pair_hash<std::pair<S, T>>
     inline std::size_t operator()(const std::pair<S, T> & v) const
     {
          std::size_t seed = 0;
-         hash_combine(seed, v.first);
-         hash_combine(seed, v.second);
+         hash_combine(seed, std::hash<S>{}(v.first));
+         hash_combine(seed, std::hash<T>{}(v.second));
          return seed;
     }
 };
@@ -44,7 +53,7 @@ class MassTracker {
   // Continuously track occurrences of particular mass differences (i.e.
   // "transformations") occurring in an updating list of masses.
 
-  std::map<double, size_t> m_masses;
+    std::flat_map<double, size_t> m_masses;
     // This is where using a boost::bimap would be useful!
     std::unordered_map<size_t, double> m_mass_ids;
     TransformMassMode m_mode;
@@ -61,8 +70,8 @@ class MassTracker {
     size_t m_total;
 
 public:
-    typedef std::map<double, size_t>::iterator mass_iter_t;
-    typedef std::map<double, size_t>::const_iterator const_mass_iter_t;
+    typedef std::flat_map<double, size_t>::iterator mass_iter_t;
+    typedef std::flat_map<double, size_t>::const_iterator const_mass_iter_t;
     // Type for tracking individial transforms, of type <xfrm_id, src_id, dst_id>
     typedef std::vector<std::tuple<size_t, size_t, size_t>> applications_t;
   
@@ -334,7 +343,7 @@ public:
     return result;
   }
 
-  std::map<double, size_t> get_massmap() const { return m_masses; }
+  std::map<double, size_t> get_massmap() const { return {m_masses.begin(), m_masses.end()}; }
 
 
   void set_state(std::map<double, size_t> masses,
@@ -348,7 +357,10 @@ public:
 	  m_min_mass = std::numeric_limits<double>::infinity();
           m_max_mass = -std::numeric_limits<double>::infinity();
       }
-      m_masses = masses;
+    m_masses.clear();
+    for (const auto &it: masses) { 
+      m_masses.insert(it);
+    }
       m_mass_ids.clear();      
       for (const auto &it : m_masses) {
 	  m_mass_ids.insert({it.second, it.first});

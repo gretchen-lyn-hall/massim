@@ -1617,6 +1617,7 @@ def gen_axes_grid(names, n_cols, axs=None, fig_kw=None, title=True, tight=True, 
             n_cols = len(axs)
             n_rows = 1
             axs = [axs]
+        n_cols = len(axs[0])
         fig = axs[0][0].get_figure()
         assert n_rows * n_cols >= len(names)
 
@@ -1823,7 +1824,7 @@ class Baseline:
         for idx, name in enumerate(which):
             dists = self.raw_dists[name]
             kde = ST.gaussian_kde(dists)
-            ax = axs[idx // 4][idx % 4]
+            ax = axs[idx // n_cols][idx % n_cols]
             X = np.linspace(kde.dataset.min(), kde.dataset.max())
             Y = kde(X)
             ax.plot(X, Y, **mpl_args(plotargs, linestyle=":", color="black"))
@@ -1887,7 +1888,7 @@ def gen_massim_files(baseline: Baseline,
                                    allow_overlap=baseline.allow_overlap,
                                    clean_peaks=baseline.clean_peaks)
     xfrm_stats_nr = transform_stats(da_nr)
-    xfrm_stats_nr.to_csv(os.path.join(dirname, f"{prefix}transforms_stats_nr.csv"))
+    xfrm_stats_nr.to_csv(os.path.join(dirname, f"{prefix}transform_stats_nr.csv"))
 
     # Find empirical distribution for baseline:
 
@@ -2018,7 +2019,7 @@ class SpectralComparison:
             mat = self.distances[name]
             kde = ST.gaussian_kde(mat.values.flatten())
 
-            ax = axs[idx // 4][idx % 4]
+            ax = axs[idx // n_cols][idx % n_cols]
             X = np.linspace(kde.dataset.min(), kde.dataset.max())
             Y = kde(X)
             ax.plot(X, Y, **mpl_args(plotargs))

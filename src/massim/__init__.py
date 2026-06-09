@@ -29,5 +29,5 @@ from .experiment import (Experiment,
                          DebugStage,
                          )
 from .transformations import (TransformStage, make_transform_list)
-from .stats import BasicStats
+from .stats import *
 
