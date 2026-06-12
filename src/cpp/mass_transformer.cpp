@@ -1,4 +1,4 @@
-#include "fft_transformer.h"
+#include "mass_transformer.h"
 #include <ranges>
 #include <cassert>
 
@@ -317,7 +317,7 @@ void TandemTransformer::TransformerResult::extend_chain(double start_mass,
 
 TandemTransformer::TransformerResult::MassIter
 TandemTransformer::TransformerResult::pick_mass(RNG &rng) {
-  if (m_parent.m_pick_mode == PICK_BY_MASS) {
+  if (m_parent.m_pick_mode == PickMassMode::PICK_BY_MASS) {
     double targ_mass = (*m_parent.m_mass_dist)(rng);
     // Randomly pick an existing mass, and extract the intensity
     // information for it.
@@ -332,7 +332,7 @@ TandemTransformer::TransformerResult::pick_mass(RNG &rng) {
     if (mass_it == m_mass_keys.end())
       mass_it--;
     return mass_it;
-  } else if (m_parent.m_pick_mode == PICK_BY_FREQ) {
+  } else if (m_parent.m_pick_mode == PickMassMode::PICK_BY_FREQ) {
     // Here, we roll our own version of std::discrete_distribution
     // The sum of all weighted mass counts should equal m_weighted_peaks, so
     // pick a number between 0 and m_weighted_peaks, and iterate through masses,

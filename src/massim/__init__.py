@@ -9,25 +9,14 @@ try:
 except ImportError:
     pass
 
-from .distributions import *
-from .gradient_response import GradientResponse, BetaResponse
-from .mass_distribution import RandomMasses, MassListPicker
-from .species_config import (
-    SpeciesGroupConfig,
-    GenSpeciesStage,
-    GenCoreStage,
-    quick_compas)
-from .sampling import *
-from .experiment import (Experiment,
-                         Message,
-                         OutputFilter,
-                         ParameterSweep,
-                         LinSpace,
-                         ArraySweep,
-                         RandomSweep,
-                         ReplicateStage,
-                         DebugStage,
-                         )
-from .transformations import (TransformStage, make_transform_list)
-from .stats import *
-
+__all__ = ['distribtions',
+           'experiment',
+           'gradient_response',
+           'species_config',
+           'sampling',
+           'profile',
+           'noise',
+           'filters',
+           'mass_distribution',
+           ]
+           

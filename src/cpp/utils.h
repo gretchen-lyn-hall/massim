@@ -11,8 +11,8 @@ namespace massim
 			const ArrayType& valid_masses);
 
 
-  typedef std::tuple<double, int, int> diffrec_t;
-  typedef std::vector<diffrec_t> difflist_t;
+  using diffrec_t = std::tuple<double, int, int>;
+  using difflist_t = std::vector<diffrec_t>;
 
   // Given an array of masses, find all (positive) pairwise masses, sort them,
   // and return the sorted list and indices of the masses  

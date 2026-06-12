@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "common.h"
-#include "fft_transformer.h"
+#include "mass_transformer.h"
 #include "mass_tracker.h"
 
 namespace massim {
@@ -55,11 +55,11 @@ class ProfileGenerator {
   ArrayType m_probs;
   ArrayType m_terminate_probs;
   std::unordered_set<size_t> m_terminated;
-  bool m_enable_termination;
+  bool m_enable_termination {false};
   ArrayType m_chain_lens;
-  size_t m_stats_break_mass;
-  size_t m_stats_break_intens;
-  size_t m_stats_break_component;
+  size_t m_stats_break_mass {};
+  size_t m_stats_break_intens {};
+  size_t m_stats_break_component {};
   std::vector<size_t> m_stats_applied;
   mutable ArrayType m_stats_weights;
 

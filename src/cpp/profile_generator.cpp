@@ -16,8 +16,11 @@ ProfileGenerator::ProfileGenerator(size_t num_profiles,
                                    double mass_min, double mass_max,
                                    double min_intensity, double thresh_ppm,
                                    double preweight, double weight_exponent)
-    : m_tracker(transforms.mass_deltas(), thresh_ppm, MODE_STRICT, false,
-                false),
+  : m_tracker(transforms.mass_deltas(),
+	      thresh_ppm,
+	      TransformMassMode::MODE_STRICT,
+	      false,
+	      false),
       m_iscale(std::move(intensity_scale.clone())),
       m_mass_min(mass_min),
       m_mass_max(mass_max),
@@ -26,18 +29,20 @@ ProfileGenerator::ProfileGenerator(size_t num_profiles,
       m_weight_exponent(weight_exponent),
       m_mass_deltas(transforms.mass_deltas()),
       m_probs(transforms.raw_probabilities()),
-      m_enable_termination(false),
       m_terminate_probs((m_probs.maxCoeff() - m_probs) / m_probs.maxCoeff()),
       m_chain_lens(transforms.chain_lengths()),
-      m_stats_break_mass(0),
-      m_stats_break_intens(0),
       m_stats_applied(transforms.num_xfrms(), 0) {
   // Initialize the tracker and intensity maps of all the profiles.
   for (int ii = 0; ii < num_profiles; ++ii) {
-    m_profiles.push_back({
-        MassTracker(transforms.mass_deltas(), thresh_ppm, MODE_STRICT, false,
-                    false)
-        // Default constructor for abundances
+    m_profiles.push_back(ProfileComponents{
+        MassTracker(transforms.mass_deltas(),
+		    thresh_ppm,
+		    TransformMassMode::MODE_STRICT,
+		    false,
+                    false),
+        // Default constructor for abundances and ids
+	{},
+	{}
     });
   }
 }

@@ -92,7 +92,7 @@ protected:
 
 };
 
-typedef std::unique_ptr<Distribution> DistUPtr;
+using DistUPtr = std::unique_ptr<Distribution>;
 
 
  

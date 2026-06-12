@@ -2184,3 +2184,28 @@ class Debug2Stage(DebugStage):
         print("    Random:", rng.uniform(0, 100))
         result = PipelineData(input, [], rng)
         return result
+
+
+
+__all__ = [
+ 'ArraySweep',
+ 'ComboStage',
+ 'DebugStage',
+ 'Experiment',
+ 'ExperimentResult',
+ 'ImportStage',
+ 'LinSpace',
+ 'Message',
+ 'OutputFilter',
+ 'ParameterSweep',
+ 'PipelineData',
+ 'RandomSweep',
+ 'RepeatingStage',
+ 'ReplicateStage',
+ 'Stage',
+ 'StageData',
+ 'StageParameter',
+ 'SweepVals',
+ 'dist_parser',
+ 'quick_run',
+]

@@ -20,10 +20,7 @@ int adjust_masses(Eigen::Ref<ArrayType> masses, const ArrayType &valid_masses) {
 }
 
 
-typedef std::pair<double, size_t> heapent_t;
-
-typedef std::tuple<double, int, int> diffrec_t;
-typedef std::vector<diffrec_t> difflist_t;
+using  heapent_t = std::pair<double, size_t>;
 
     
 difflist_t diffsort(const ArrayType &masses) {
@@ -83,7 +80,11 @@ difflist_t simplediffsort(const ArrayType &masses) {
 		diffs.push_back({diff, ii, jj});
         }
     }
+    #ifdef __APPLE__
+    std::sort(diffs.begin(), diffs.end());
+    #else
     std::sort(std::execution::par_unseq, diffs.begin(), diffs.end());
+    #endif
     return diffs;
 }    
 
@@ -112,7 +113,11 @@ find_transforms(const VecType &masses, const VecType &xfrm_masses,
         diffs.push_back({diff, ii, jj});
     }
 
+#ifdef __APPLE__
+  std::sort(diffs.begin(), diffs.end());
+#else
   std::sort(std::execution::par_unseq, diffs.begin(), diffs.end());
+#endif
   
   std::vector<std::tuple<int, int, int>> result;
   auto scan_start = diffs.begin();

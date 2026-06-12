@@ -1,5 +1,5 @@
-#ifndef MASSIM_FFT_TRANSFORMER_H
-#define MASSIM_FFT_TRANSFORMER_H
+#ifndef MASSIM_MASS_TRANSFORMER_H
+#define MASSIM_MASS_TRANSFORMER_H
 
 #include "common.h"
 #include "distribution.h"
@@ -13,7 +13,7 @@
 namespace massim {
 
 
-enum PickMassMode {
+enum class PickMassMode {
   PICK_BY_MASS = 0,
   PICK_BY_FREQ = 1,
   PICK_BY_WEIGHT = 2
@@ -152,7 +152,7 @@ class TandemTransformer {
                     const Distribution &mass_dist, double mass_min = 150,
                     double mass_max = 1200, double min_intensity = 1,
                     double thresh_ppm = 1.0,
-                    PickMassMode mass_mode = PICK_BY_MASS,
+                    PickMassMode mass_mode = PickMassMode::PICK_BY_MASS,
                     double mass_center = 600,
 		    double mass_scale = 100
                     );
@@ -332,4 +332,4 @@ class TandemTransformer {
 
 
 } // namespace massim
-#endif // MASSIM_FFT_TRANSFORMER_H
+#endif // MASSIM_MASS_TRANSFORMER_H

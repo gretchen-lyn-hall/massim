@@ -8,7 +8,7 @@ namespace massim {
 
 const int RANDOM_SEED = std::numeric_limits<int>::max();
 
-typedef std::mt19937 RandomEngine_t;
+using RandomEngine_t = std::mt19937;
 
 struct RNG {
   RandomEngine_t engine;

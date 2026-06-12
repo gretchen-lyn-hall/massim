@@ -2,15 +2,15 @@
 #define MASSIM_MASS_TRACKER_H
 
 #include "common.h"
-#include <cassert>
-#include <unordered_map>
-#include <unordered_set>
+#include <vector>
 #include <flat_map>
+#include <unordered_set>
+
 
 namespace massim {
 
 
-enum TransformMassMode { MODE_STRICT = 0, MODE_MODERATE = 1, MODE_LAX = 2 };
+enum class TransformMassMode { MODE_STRICT = 0, MODE_MODERATE = 1, MODE_LAX = 2 };
 
 // Source - https://stackoverflow.com/a/9729747
 // Posted by Kerrek SB, modified by community. See post 'Timeline' for change history
@@ -64,16 +64,16 @@ class MassTracker {
                        pair_hash<std::pair<size_t, int>>> m_seen;
     IntArrayType m_counts;
     std::vector<std::tuple<size_t, size_t, size_t>> m_applications;
-    double m_min_mass;
-    double m_max_mass;
+    double m_min_mass {std::numeric_limits<double>::infinity()};
+  double m_max_mass {-std::numeric_limits<double>::infinity()};
     double m_tol;
-    size_t m_total;
+  size_t m_total {};
 
 public:
-    typedef std::flat_map<double, size_t>::iterator mass_iter_t;
-    typedef std::flat_map<double, size_t>::const_iterator const_mass_iter_t;
+  using mass_iter_t = std::flat_map<double, size_t>::iterator;
+  using const_mass_iter_t = std::flat_map<double, size_t>::const_iterator;
     // Type for tracking individial transforms, of type <xfrm_id, src_id, dst_id>
-    typedef std::vector<std::tuple<size_t, size_t, size_t>> applications_t;
+    using applications_t = std::vector<std::tuple<size_t, size_t, size_t>>;
   
   // Create a tracker that will continuously update the counts of occurrences of
   // specified mass deltas in a list of masses.
@@ -130,11 +130,9 @@ public:
       : m_mass_deltas(mass_deltas.begin(), mass_deltas.end()), m_mode(mode),
         m_counts(IntArrayType::Zero(mass_deltas.size())), m_tol(tol_ppm * 1e-6),
         m_strict(strict_count),
-	m_track_applications(track_applications),
-        m_min_mass(std::numeric_limits<double>::infinity()),
-        m_max_mass(-std::numeric_limits<double>::infinity())
-        {
-	}
+	m_track_applications(track_applications)
+    {
+    }
 
 
     // Return the number of masses
@@ -161,8 +159,8 @@ public:
     
     size_t insert_mass(double mass, bool force_insert = false, int mass_id = -1) {
     auto existing = find_mass(mass);
-    if (existing >= 0 && !force_insert) {
-	return existing;
+    if (existing.has_value() && !force_insert) {
+	return *existing;
     }
 
     size_t new_id;
@@ -205,11 +203,11 @@ public:
   }
   
   // Check if `test_mass` is within tolerance of any tracked mass. If so,
-  // return its id, otherwise return -1.  
-  int find_mass(double test_mass) const {
+  // return its id, otherwise return an empty optional.
+  std::optional<int> find_mass(double test_mass) const {
       auto [lo_bound, hi_bound] = find_close(test_mass, test_mass * m_tol);
       if (lo_bound == hi_bound) {
-	  return -1;
+	return std::nullopt;
       }
     return lo_bound->second;
   }
@@ -242,11 +240,11 @@ public:
 
   std::pair<bool, bool> contains_xfrm_by_mass(double mass,
                                               size_t xfrm_id) const {
-    int mass_id = find_mass(mass);
-    if (mass_id < 0) {
+    auto mass_id = find_mass(mass);
+    if (!mass_id.has_value()){
       return {false, false};
     }
-    return contains_xfrm_by_id(mass_id, xfrm_id);
+    return contains_xfrm_by_id(*mass_id, xfrm_id);
   }    
   
   
@@ -421,11 +419,11 @@ private:
     // Helper function to get the appropriate tolerances for testing
     // if a transformation is within the set.    
     switch (m_mode) {
-    case (MODE_STRICT):
+    case (TransformMassMode::MODE_STRICT):
       return {m_tol * (test_mass - delta_m), m_tol * test_mass};
-    case (MODE_LAX):
+    case (TransformMassMode::MODE_LAX):
       return {m_tol * (test_mass), m_tol * (test_mass + delta_m)};
-    case (MODE_MODERATE):
+    case (TransformMassMode::MODE_MODERATE):
       return {
         m_tol *get_average(test_mass - delta_m, test_mass),
 	m_tol * get_average(test_mass, test_mass + delta_m)};
