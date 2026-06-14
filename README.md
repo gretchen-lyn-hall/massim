@@ -11,7 +11,8 @@ MASSIM can be installed using the `pip` package manager with:
 ```
 
 However, note that MASSIM installation requires that C++ extension modules be 
-built, which requires 
+built, which maybe I can get github to handle
+
 
 
 
