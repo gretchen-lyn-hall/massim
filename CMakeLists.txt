@@ -12,7 +12,7 @@ find_package(pybind11 CONFIG REQUIRED)
 #find_package(OpenMP REQUIRED)
 
 file(GLOB SOURCES "src/cpp/*.cpp")
-find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+find_package (Eigen3 5 REQUIRED NO_MODULE)
 add_library(cmassim STATIC ${SOURCES})
 target_include_directories(cmassim PRIVATE)
 set_property(TARGET cmassim PROPERTY CXX_STANDARD 23)
@@ -27,7 +27,7 @@ install(
 
 
 
-find_package (Eigen3 3.3 REQUIRED)
+find_package (Eigen3 5 REQUIRED)
 include_directories( ${EIGEN3_INCLUDE_DIRS} )
 pybind11_add_module(_core MODULE src/main.cpp)
 target_include_directories(_core PRIVATE)
