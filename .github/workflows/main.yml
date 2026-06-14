@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Checkout project
         uses: actions/checkout@v6
-	with:
+        with:
 	    persist-credentials: false
 
       - name: Install Eigen3
@@ -40,10 +40,10 @@ jobs:
           # Optional: Run tests inside the wheels before finalizing
           CIBW_TEST_REQUIRES: "pytest"
           CIBW_TEST_COMMAND: "pytest {project}/tests"
-	with:
-	  package-dir: .
-	  output-dir: wheelhouse
-	  config-file: "{package}/pyproject.toml"
+        with:
+          package-dir: .
+          output-dir: wheelhouse
+          config-file: "{package}/pyproject.toml"
 
   build_sdist:
     name: Build source distribution
