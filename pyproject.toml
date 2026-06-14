@@ -1,6 +1,6 @@
 [project]
 name = "massim"
-version = "0.1.0"
+version = "0.1.1"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -17,14 +17,14 @@ dependencies = [
     "tqdm>=4.68.2",
 ]
 
+
+[project.scripts]
+massim = "massim:main"
+
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 build-dir = "build/{wheel_tag}"
-wheel.packages = ["src/massim"]
-
-[tool.scikit-build.cmake]
-#build-type = "Debug"
-#build-type = "RelWithDebInfo"
+sdist.exclude = ["baseline*"]
 
 [build-system]
 requires = ["scikit-build-core>=0.10", "pybind11"]
@@ -34,3 +34,9 @@ build-backend = "scikit_build_core.build"
 dev = [
     "ipython>=9.14.1",
 ]
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true

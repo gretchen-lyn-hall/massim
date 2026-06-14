@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Emacs temp
+*~
+\#*\#
+.\#*
+
+# Virtual environments
+.venv
+
+# My test programs
+tst_*.py
+scratch.py
+
+# Misc:
+.DS_Store
+CMakeCache.txt
+CMakeFiles
+.cache
+mprofile_*.dat
+*.pyi
+compile_commands.json
