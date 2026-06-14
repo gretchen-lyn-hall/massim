@@ -9,7 +9,7 @@ set(PYBIND11_FINDPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
 
 
-find_package(OpenMP REQUIRED)
+#find_package(OpenMP REQUIRED)
 
 file(GLOB SOURCES "src/cpp/*.cpp")
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
@@ -41,16 +41,16 @@ install(TARGETS _core cmassim DESTINATION ${SKBUILD_PROJECT_NAME})
 # Extra test apps
 add_executable(prof_test "src/cpp/tests/profile_prof.cpp")
 set_property(TARGET prof_test PROPERTY CXX_STANDARD 23)
-target_compile_options(prof_test PRIVATE -fexperimental-library)
+target_compile_options(prof_test PRIVATE)
 target_compile_features(prof_test PRIVATE cxx_std_23 INTERFACE cxx_std_23)
-target_link_libraries (prof_test cmassim Eigen3::Eigen -fexperimental-library OpenMP::OpenMP_CXX)
+target_link_libraries (prof_test cmassim Eigen3::Eigen)
 
 add_executable(smallmap_test "src/cpp/tests/smallmap_test.cpp")
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 set_property(TARGET smallmap_test PROPERTY CXX_STANDARD 23)
-target_compile_options(smallmap_test PRIVATE -fexperimental-library)
+target_compile_options(smallmap_test PRIVATE)
 target_compile_features(smallmap_test PRIVATE cxx_std_23 INTERFACE cxx_std_23)
-target_link_libraries (smallmap_test cmassim Eigen3::Eigen -fexperimental-library OpenMP::OpenMP_CXX)
+target_link_libraries (smallmap_test cmassim Eigen3::Eigen)
 
 
 # find_package(cmassim CONFIG)
