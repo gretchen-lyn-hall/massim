@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 4.0)
 set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
 set(CXX_MODULE_STD 1)
 
-project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX)
+project(massim LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(PYBIND11_FINDPYTHON ON)
@@ -34,7 +34,7 @@ target_include_directories(_core PRIVATE)
 set_property(TARGET _core PROPERTY CXX_STANDARD 23)
 target_link_libraries(_core PRIVATE)
 target_link_libraries(_core PRIVATE cmassim)
-install(TARGETS _core cmassim DESTINATION ${SKBUILD_PROJECT_NAME})
+install(TARGETS _core cmassim DESTINATION massim)
 
 
 
