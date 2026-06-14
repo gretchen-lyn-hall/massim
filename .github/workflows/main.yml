@@ -21,12 +21,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Eigen3
-        uses: kupns-aka-kupa/setup-eigen3@v1
+      - name: Install dependencies
+        uses: jrl-umi3218/github-actions/install-dependencies@master
         with:
-          version: 3.4.0
-        env:
-          CMAKE_GENERATOR: ${{ matrix.gen }}
+          compiler: ${{ matrix.compiler }}
+          build-type: ${{ matrix.build-type }}
+          ubuntu: |
+            apt: libeigen3-dev
+          macos: |
+            brew: eigen
+          windows: |
+            github:
+              - path: eigenteam/eigen-git-mirror
+                ref: 3.3.7
 
       - name: Build wheels via cibuildwheel
         uses: pypa/cibuildwheel@v4.1.0
