@@ -1,6 +1,7 @@
 #ifndef MASSIM_MASS_TRACKER_H
 #define MASSIM_MASS_TRACKER_H
 
+#include <cassert>
 #include "common.h"
 #include <vector>
 #include <flat_map>
