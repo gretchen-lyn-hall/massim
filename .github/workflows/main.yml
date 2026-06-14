@@ -19,7 +19,7 @@ jobs:
       - name: Checkout project
         uses: actions/checkout@v6
         with:
-	    persist-credentials: false
+          persist-credentials: false
 
       - name: Install Eigen3
         uses: kupns-aka-kupa/setup-eigen3@v1
@@ -36,7 +36,6 @@ jobs:
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
           CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
           CIBW_ARCHS_MACOS: "x86_64 arm64 universal2"
-          
           # Optional: Run tests inside the wheels before finalizing
           CIBW_TEST_REQUIRES: "pytest"
           CIBW_TEST_COMMAND: "pytest {project}/tests"
