@@ -37,7 +37,7 @@ jobs:
           CIBW_TEST_COMMAND: "pytest {project}/tests"
 
       - name: Upload artifact wheels
-        uses: actions/upload-artifacts@v4
+        uses: actions/upload-artifact@v4
         with:
           name: cibw-wheels-${{ matrix.os }}
           path: ./wheelhouse/*.whl
