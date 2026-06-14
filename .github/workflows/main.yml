@@ -17,14 +17,19 @@ jobs:
 
     steps:
       - name: Checkout project
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+	with:
+	    persist-credentials: false
 
-      - name: Set up QEMU (Required for Linux ARM64 cross-compilation)
-        if: runner.os == 'Linux'
-        uses: docker/setup-qemu-action@v3
+      - name: Install Eigen3
+        uses: kupns-aka-kupa/setup-eigen3@v1
+        with:
+          version: 3.4.0
+        env:
+          CMAKE_GENERATOR: ${{ matrix.gen }}
 
       - name: Build wheels via cibuildwheel
-        uses: pypa/cibuildwheel@v2.22.0
+        uses: pypa/cibuildwheel@v4.1.0
         env:
           # Configuration for compilation targets
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
@@ -35,19 +40,17 @@ jobs:
           # Optional: Run tests inside the wheels before finalizing
           CIBW_TEST_REQUIRES: "pytest"
           CIBW_TEST_COMMAND: "pytest {project}/tests"
-
-      - name: Upload artifact wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: cibw-wheels-${{ matrix.os }}
-          path: ./wheelhouse/*.whl
+	with:
+	  package-dir: .
+	  output-dir: wheelhouse
+	  config-file: "{package}/pyproject.toml"
 
   build_sdist:
     name: Build source distribution
     runs-on: ubuntu-latest
     steps:
       - name: Checkout project
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build sdist
         run: pipx run build --sdist
