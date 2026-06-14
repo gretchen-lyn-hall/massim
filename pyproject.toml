@@ -33,6 +33,7 @@ build-backend = "scikit_build_core.build"
 [dependency-groups]
 dev = [
     "ipython>=9.14.1",
+    "pytest>=9.1.0",
 ]
 
 [[tool.uv.index]]
