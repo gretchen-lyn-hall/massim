@@ -49,8 +49,8 @@ jobs:
           # Configuration for compilation targets
           # Unfortunately, igraph doesn't build on free threaded, so
           # exclude that.
-          CIBW_BUILD: "cp3??-*"
-          #CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          #CIBW_BUILD: "cp3??-*"
+          CIBW_ARCHS_LINUX: "x86_64 aarch64"
           #CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
           CIBW_ARCHS_MACOS: "arm64"
           # Optional: Run tests inside the wheels before finalizing
@@ -90,8 +90,8 @@ jobs:
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
     # Securely deploy to PyPI only when a GitHub Release is published
-    # TODO - REMOVE ME WHEN TESTING COMPLETE
-    #if: github.event_name == 'release' && github.event.action == 'published'
+    # (gh release create)
+    if: github.event_name == 'release' && github.event.action == 'published'
     environment:
       name: testpypi
       url: https://test.pypi.org/p/massim
