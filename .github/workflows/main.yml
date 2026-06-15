@@ -29,7 +29,7 @@ jobs:
           ubuntu: |
             apt: libeigen3-dev
           macos: |
-            brew: eigen
+            brew: eigen libomp
           windows: |
             github:
               - path: eigenteam/eigen-git-mirror
@@ -42,7 +42,7 @@ jobs:
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
           CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
-          CIBW_ARCHS_MACOS: "x86_64 arm64 universal2"
+          CIBW_ARCHS_MACOS: "arm64"
           # Optional: Run tests inside the wheels before finalizing
           CIBW_TEST_REQUIRES: "pytest"
           CIBW_TEST_COMMAND: "pytest {project}/tests"
