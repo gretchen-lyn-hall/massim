@@ -47,7 +47,9 @@ jobs:
                # to supply options, put them in 'env', like:
         env:
           # Configuration for compilation targets
-          # CIBW_BUILD: "cp312-* cp313-* cp314-*"
+          # Unfortunately, igraph doesn't build on free threaded, so
+          # exclude that.
+          CIBW_BUILD: "cp3??-*"
           #CIBW_ARCHS_LINUX: "x86_64 aarch64"
           #CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
           CIBW_ARCHS_MACOS: "arm64"
