@@ -9,6 +9,18 @@ set(PYBIND11_FINDPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
 
 
+# For debugging Github Actions compilation
+function(print_all_variables)
+  message(STATUS "CMake Variables:")
+  get_cmake_property(_variableNames VARIABLES)
+  list(SORT _variableNames)
+  foreach (_variableName ${_variableNames})
+    message(STATUS "${_variableName}=${${_variableName}}")
+  endforeach()
+endfunction()
+
+
+
 #find_package(OpenMP REQUIRED)
 
 file(GLOB SOURCES "src/cpp/*.cpp")
@@ -23,6 +35,7 @@ endif()
 
 target_link_libraries (cmassim Eigen3::Eigen) 
 
+print_all_variables()
 # Install the dyl
 install(
   TARGETS cmassim
