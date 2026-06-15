@@ -26,6 +26,7 @@ endfunction()
 
 if (CMAKE_HOST_APPLE)  
  set(COMMON_COMPILE_OPTIONS -mmacosx-version-min=13.3)
+ set(COMMON_LINK_OPTIONS -mmacosx-version-min=13.3)
 endif()
 
 
@@ -41,7 +42,7 @@ add_library(cmassim STATIC ${SOURCES})
 target_include_directories(cmassim PRIVATE)
 set_property(TARGET cmassim PROPERTY CXX_STANDARD 23)
 target_compile_options(cmassim PUBLIC ${COMMON_COMPILE_OPTIONS})
-target_link_libraries (cmassim Eigen3::Eigen) 
+target_link_libraries (cmassim Eigen3::Eigen ${COMMON_LINK_OPTIONS}) 
 
 # print_all_variables()
 # Install the dyl
@@ -58,7 +59,7 @@ pybind11_add_module(_core MODULE src/main.cpp)
 target_include_directories(_core PRIVATE)
 set_property(TARGET _core PROPERTY CXX_STANDARD 23)
 target_compile_options(_core PRIVATE ${COMMON_COMPILE_OPTIONS})
-target_link_libraries(_core PRIVATE cmassim)
+target_link_libraries(_core PRIVATE cmassim ${COMMON_LINK_OPTIONS})
 install(TARGETS _core cmassim DESTINATION massim)
 
 
@@ -68,14 +69,14 @@ add_executable(prof_test "src/cpp/tests/profile_prof.cpp")
 set_property(TARGET prof_test PROPERTY CXX_STANDARD 23)
 target_compile_options(prof_test PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_compile_features(prof_test PRIVATE cxx_std_23 INTERFACE cxx_std_23)
-target_link_libraries (prof_test cmassim Eigen3::Eigen)
+target_link_libraries (prof_test cmassim Eigen3::Eigen ${COMMON_LINK_OPTIONS})
 
 add_executable(smallmap_test "src/cpp/tests/smallmap_test.cpp")
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 set_property(TARGET smallmap_test PROPERTY CXX_STANDARD 23)
 target_compile_options(smallmap_test PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_compile_features(smallmap_test PRIVATE cxx_std_23 INTERFACE cxx_std_23)
-target_link_libraries (smallmap_test cmassim Eigen3::Eigen)
+target_link_libraries (smallmap_test cmassim Eigen3::Eigen ${COMMON_LINK_OPTIONS})
 
 
 # find_package(cmassim CONFIG)

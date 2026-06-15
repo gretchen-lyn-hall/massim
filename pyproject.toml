@@ -32,6 +32,7 @@ build-backend = "scikit_build_core.build"
 
 [dependency-groups]
 dev = [
+    "delocate>=0.13.0",
     "ipython>=9.14.1",
     "pytest>=9.1.0",
 ]

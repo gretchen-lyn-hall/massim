@@ -35,21 +35,29 @@ jobs:
               - path: eigenteam/eigen-git-mirror
                 ref: 3.3.7
 
-      - name: Build wheels via cibuildwheel
-        uses: pypa/cibuildwheel@v4.1.0
+      # Used to host cibuildwheel
+      - uses: actions/setup-python@v6
+
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel==4.1.0
+
+      - name: Build wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
+               # to supply options, put them in 'env', like:
         env:
           # Configuration for compilation targets
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
-          CIBW_ARCHS_LINUX: "x86_64 aarch64"
-          CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
+          #CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          #CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
           CIBW_ARCHS_MACOS: "arm64"
           # Optional: Run tests inside the wheels before finalizing
           CIBW_TEST_REQUIRES: "pytest"
           CIBW_TEST_COMMAND: "pytest {project}/tests"
+
+      - uses: actions/upload-artifact@v6
         with:
-          package-dir: .
-          output-dir: wheelhouse
-          config-file: "{package}/pyproject.toml"
+          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ./wheelhouse/*.whl
 
   build_sdist:
     name: Build source distribution
