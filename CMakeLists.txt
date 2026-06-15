@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 4.0)
 if (CMAKE_HOST_APPLE)  
  #set(COMMON_COMPILE_OPTIONS -arch arm64)
  #set(COMMON_LINK_OPTIONS -arch arm64)
+ set(CMAKE_OSX_ARCHITECTURES arm64)
  set(CMAKE_OSX_DEPLOYMENT_TARGET "15")
 endif()
 
@@ -46,7 +47,7 @@ set_property(TARGET cmassim PROPERTY CXX_STANDARD 23)
 target_compile_options(cmassim PUBLIC ${COMMON_COMPILE_OPTIONS})
 target_link_libraries (cmassim Eigen3::Eigen ${COMMON_LINK_OPTIONS}) 
 
-# print_all_variables()
+print_all_variables()
 # Install the dyl
 install(
   TARGETS cmassim
