@@ -3,6 +3,7 @@ name: Build and Publish Wheels
 on:
   push:
     branches: [ main, master ]
+# To trigger a release: use `gh release create`
   release:
     types: [ published ]
 
@@ -46,7 +47,7 @@ jobs:
                # to supply options, put them in 'env', like:
         env:
           # Configuration for compilation targets
-          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
+          # CIBW_BUILD: "cp312-* cp313-* cp314-*"
           #CIBW_ARCHS_LINUX: "x86_64 aarch64"
           #CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
           CIBW_ARCHS_MACOS: "arm64"
@@ -77,6 +78,11 @@ jobs:
           name: cibw-sdist
           path: dist/*.tar.gz
 
+# Note - this can be tricky to set up. Note that you have to make sure
+# EVERYTHING in the trusted publisher is identical, including workflow
+# name. You don't get much of a helpful error if there's a typo (.yaml instead
+# of .yml)
+
   publish_to_pypi:
     name: Publish packages to TestPyPI
     needs: [build_wheels, build_sdist]
@@ -100,4 +106,4 @@ jobs:
       - name: Publish package distribution to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository_url: https://test.pypi.org/legacy/
+          repository-url: https://test.pypi.org/legacy/
