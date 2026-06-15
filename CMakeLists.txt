@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 4.0)
 
 if (CMAKE_HOST_APPLE)  
- #set(COMMON_COMPILE_OPTIONS -mmacosx-version-min=13.3)
- #set(COMMON_LINK_OPTIONS -mmacosx-version-min=13.3)
+ #set(COMMON_COMPILE_OPTIONS -arch arm64)
+ #set(COMMON_LINK_OPTIONS -arch arm64)
  set(CMAKE_OSX_DEPLOYMENT_TARGET "15")
 endif()
 
