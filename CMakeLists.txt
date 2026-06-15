@@ -7,6 +7,8 @@ if (CMAKE_HOST_APPLE)
  set(CMAKE_OSX_DEPLOYMENT_TARGET "15")
 endif()
 
+# For debugging builds
+set(CMAKE_VERBOSE_MAKEFILE ON)
 
 if ( ${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR} )
 message( FATAL_ERROR “In-source builds not allowed! Create a build directory and run CMake from there. ” )
@@ -31,6 +33,7 @@ function(print_all_variables)
     message(STATUS "${_variableName}=${${_variableName}}")
   endforeach()
 endfunction()
+
 
 
 

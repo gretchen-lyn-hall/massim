@@ -5,8 +5,9 @@ import tqdm
 from copy import copy
 from collections import defaultdict
 import scipy.stats as ST
+from importlib.resources import files
+import multiprocessing as mp
 
-from .utils import dotdict
 from .graph_util import make_graph, TransformGraph
 from ._core import find_transforms, track_transforms, MODE_STRICT, MODE_LAX, MODE_MODERATE
 
@@ -18,10 +19,9 @@ CORE_ERR_MODES = {
 
 USE_MP = True
 MP_MODE = 'fork'
-import multiprocessing as mp
 
+DEFAULT_XFRMS = str(files("massim.data").joinpath("transf_key.csv"))
 
-DEFAULT_XFRMS = pd.read_csv("~/Tfaily/emerge/mire/mire/transf_key.csv")
 
 class DataAnalysis:
     def __init__(self):
@@ -34,15 +34,17 @@ class DataAnalysis:
         self.intensity = None
 
     def spectrum(self, idx):
+        assert self.intensity is not None
+        assert self.masses is not None
         intens = self.intensity[:, idx]
         mass = self.masses[intens > 0]
         intens = intens[intens > 0]
         return intens, mass
 
 
-def detect_axis(mat: pd.DataFrame|np.ndarray,
-                compound_info: pd.DataFrame|pd.Series|np.ndarray,
-                compound_axis: int|None) -> int:
+def detect_axis(mat: pd.DataFrame | np.ndarray,
+                compound_info: pd.DataFrame | pd.Series | np.ndarray,
+                compound_axis: int | None) -> int:
     if compound_axis is None:
         if compound_info.shape[0] == mat.shape[0]:
             return 0
@@ -51,8 +53,9 @@ def detect_axis(mat: pd.DataFrame|np.ndarray,
         else:
             raise ValueError("Intensity matrix not aligned with mass list")
     elif compound_info.shape[0] != mat.shape[compound_axis]:
-            raise ValueError("Intensity matrix not aligned with mass list")
+        raise ValueError("Intensity matrix not aligned with mass list")
     return compound_axis
+
 
 def find_xfrms_py(masses, xkeys, err_abs, allow_overlap=True):
     X, Y = np.triu_indices(len(masses), k=1)
@@ -83,10 +86,9 @@ def find_xfrms_py(masses, xkeys, err_abs, allow_overlap=True):
             c_min = lo
         else:
             c_min = hi
-    if not results :
-        return np.array([[],[],[]]).T, np.array([])
+    if not results:
+        return np.array([[], [], []]).T, np.array([])
     return np.concat(results, axis=1).T, np.abs(np.concat(errs))
-
 
 
 class GraphBuilder:
@@ -97,7 +99,7 @@ class GraphBuilder:
                  err_ppm=1.0,
                  err_mode="moderate",
                  clean_peaks=False,
-                 allow_overlap=False) :
+                 allow_overlap=False):
         
         self.key_mass = np.array(keys[key_column])
         self.keys = keys
@@ -108,7 +110,6 @@ class GraphBuilder:
         self.err_mode = err_mode
         self.clean_peaks = clean_peaks
         self.allow_overlap = allow_overlap
-
 
     def find_xfrms_raw(self, masses, err_abs):
         """
@@ -146,7 +147,6 @@ class GraphBuilder:
             else:
                 c_min = hi
         return np.concat(results, axis=1).T, np.abs(np.concat(errs))
-
 
     def find_transforms(self,
                         masses: pd.Series|np.ndarray):
@@ -203,10 +203,6 @@ class GraphBuilder:
         else:
             err = np.array()
 
-
-
-        
-        
         xfrms = pd.DataFrame(xfrms, columns=["xfrm_id", "src", "dst"])
         xfrms["err"] = err
         if self.clean_peaks:
@@ -229,8 +225,6 @@ class GraphBuilder:
         xfrms = self.find_transforms(masses)
         G = self.build_graph_raw(xfrms, compound_ids, vertex_data)
         return xfrms, G
-
-
 
 
 def build_sample_graph(masses: pd.Series|np.ndarray,

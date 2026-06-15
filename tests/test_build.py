@@ -1,6 +1,9 @@
 import massim.all as ma
 import numpy as np
 import pandas as pd
+from importlib.resources import files
+
+DATA_FILES = files("massim.data").joinpath("emerge_stats")
 
 
 
@@ -10,15 +13,13 @@ def test_run_simple():
     N_total = 28_000
     csamp, cspcs, core = ma.quick_compas(N_spcs, N_samp, 3, sample_method="random")
 
-    xfrm_non = pd.read_csv("/Users/grethall/Tfaily/massim/src/massim/data/emerge_nonredundant.csv")
-    metabs = pd.read_csv("/Users/grethall/Tfaily/massim/metabs.csv")
+    xfrm_non = pd.read_csv(DATA_FILES.joinpath("transform_stats_nr.csv"))
+    metabs = pd.read_csv(DATA_FILES.joinpath("masses.csv"))
 
     # For resampling intensities, we 
-    intens_icdf = np.load("/Users/grethall/Tfaily/massim/src/massim/data/emerge_intensity_icdf.npy")
-    intens_icdf2D = np.load("/Users/grethall/Tfaily/massim/src/massim/data/emerge_intensity_icdf_2D.npy")
+    intens_icdf2D = pd.read_csv(DATA_FILES.joinpath("intensity_distributions.csv"),
+                                index_col=0).values
 
-
-    intens_dist = ma.PowDistribution(10, ma.PiecewiseEmpiricalDistribution(intens_icdf))
     intens_dist2D = ma.PowDistribution(10,
                                        ma.OneOfDistribution(
                                            [ma.PiecewiseEmpiricalDistribution(row)
