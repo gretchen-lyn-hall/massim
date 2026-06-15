@@ -28,8 +28,8 @@ jobs:
         with:
           compiler: clang
           build-type: ${{ matrix.build-type }}
-          ubuntu: |
-            apt: libeigen3-dev
+          #ubuntu: |
+          #  apt: libeigen3-dev
           macos: |
             brew: eigen libomp
           windows: |
@@ -53,6 +53,7 @@ jobs:
           #CIBW_BUILD: "cp3??-*"
           # CIBW_ARCHS_LINUX: "x86_64 aarch64"
           #CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
+          CIBW_BEFORE_ALL_LINUX: "sudo apt install -y libeigen3-dev"
           CIBW_ARCHS_MACOS: "arm64"
           # Optional: Run tests inside the wheels before finalizing
           CIBW_TEST_REQUIRES: "pytest"
