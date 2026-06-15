@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 4.0)
 
+if (CMAKE_HOST_APPLE)  
+ #set(COMMON_COMPILE_OPTIONS -mmacosx-version-min=13.3)
+ #set(COMMON_LINK_OPTIONS -mmacosx-version-min=13.3)
+ set(CMAKE_OSX_DEPLOYMENT_TARGET "15")
+endif()
+
+
 if ( ${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR} )
 message( FATAL_ERROR “In-source builds not allowed! Create a build directory and run CMake from there. ” )
 endif()
@@ -23,11 +30,6 @@ function(print_all_variables)
     message(STATUS "${_variableName}=${${_variableName}}")
   endforeach()
 endfunction()
-
-if (CMAKE_HOST_APPLE)  
- set(COMMON_COMPILE_OPTIONS -mmacosx-version-min=13.3)
- set(COMMON_LINK_OPTIONS -mmacosx-version-min=13.3)
-endif()
 
 
 
