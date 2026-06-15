@@ -16,7 +16,11 @@ find_package (Eigen3 5 REQUIRED NO_MODULE)
 add_library(cmassim STATIC ${SOURCES})
 target_include_directories(cmassim PRIVATE)
 set_property(TARGET cmassim PROPERTY CXX_STANDARD 23)
-target_compile_options(cmassim PRIVATE) 
+
+if (CMAKE_HOST_APPLE)  
+  target_compile_options(cmassim PRIVATE -mmacosx-version-min=13.3)
+endif()
+
 target_link_libraries (cmassim Eigen3::Eigen) 
 
 # Install the dyl
@@ -32,7 +36,9 @@ include_directories( ${EIGEN3_INCLUDE_DIRS} )
 pybind11_add_module(_core MODULE src/main.cpp)
 target_include_directories(_core PRIVATE)
 set_property(TARGET _core PROPERTY CXX_STANDARD 23)
-target_link_libraries(_core PRIVATE)
+if (CMAKE_HOST_APPLE)  
+  target_compile_options(cmassim PRIVATE -mmacosx-version-min=13.3)
+endif()
 target_link_libraries(_core PRIVATE cmassim)
 install(TARGETS _core cmassim DESTINATION massim)
 

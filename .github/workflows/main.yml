@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         # matrix setup for Windows, Ubuntu Linux, and macOS
-        os: [macos-latest] #[ubuntu-latest, windows-latest, macos-latest]
+        os: [macos-26] #[ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout project
