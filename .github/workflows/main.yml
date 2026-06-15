@@ -56,7 +56,7 @@ jobs:
           # Disable repair for now
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
           path: ./wheelhouse/*.whl
@@ -72,7 +72,7 @@ jobs:
         run: pipx run build --sdist
 
       - name: Upload artifact sdist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cibw-sdist
           path: dist/*.tar.gz
@@ -82,10 +82,11 @@ jobs:
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
     # Securely deploy to PyPI only when a GitHub Release is published
-    if: github.event_name == 'release' && github.event.action == 'published'
+    # TODO - REMOVE ME WHEN TESTING COMPLETE
+    #if: github.event_name == 'release' && github.event.action == 'published'
     environment:
-      name: pypi
-      url: https://test.pypi.org
+      name: testpypi
+      url: https://test.pypi.org/p/massim
     permissions:
       id-token: write  # Mandatory for Trusted Publishing (OIDC)
     steps:
@@ -98,3 +99,5 @@ jobs:
 
       - name: Publish package distribution to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
