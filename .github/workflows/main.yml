@@ -53,7 +53,7 @@ jobs:
           #CIBW_BUILD: "cp3??-*"
           # CIBW_ARCHS_LINUX: "x86_64 aarch64"
           #CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
-          CIBW_BEFORE_ALL_LINUX: "yum install -y libeigen3-devel"
+          CIBW_BEFORE_ALL_LINUX: "yum install -y eigen3-devel"
           CIBW_ARCHS_MACOS: "arm64"
           # Optional: Run tests inside the wheels before finalizing
           CIBW_TEST_REQUIRES: "pytest"
