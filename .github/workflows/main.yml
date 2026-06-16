@@ -49,7 +49,7 @@ jobs:
           # exclude that.
           CIBW_BUILD: "cp3??-*"
           # Don't build for x86 macs
-          CIBW_ARCHS_MACOS: "arm64"
+          #CIBW_ARCHS_MACOS: "arm64"
           # Don't build for 32-bit windows. MASSIM builds OK, but
           # matplotlib build fails during test.
           CIBW_SKIP: "*-win32"
