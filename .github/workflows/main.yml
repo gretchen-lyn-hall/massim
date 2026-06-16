@@ -59,7 +59,7 @@ jobs:
           # CIBW_ARCHS_LINUX: "x86_64 aarch64"
           #CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
           # CIBW_BEFORE_ALL_LINUX: "yum install -y eigen3-devel"
-          CIBW_BEFORE_BUILD_LINUX: "yum install -y cmake && cmake -B _build -DCMAKE_BUILD_TYPE=Release && cmake --build _build"
+          CIBW_BEFORE_BUILD_LINUX: "yum install -y pybind11 cmake && cmake -B _build -DCMAKE_BUILD_TYPE=Release && cmake --build _build"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: "LD_LIBRARY_PATH={package}/_build auditwheel repair -w {dest_dir} {wheel}"
           
           CIBW_ARCHS_MACOS: "arm64"
