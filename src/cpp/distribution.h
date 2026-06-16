@@ -1,6 +1,7 @@
 #ifndef MASSIM_DISTRIBUTION_H
 #define MASSIM_DISTRIBUTION_H
 
+#include <memory>
 #include <random>
 #include <stdexcept>
 #include <vector>

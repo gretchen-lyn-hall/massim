@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <exception>
+#include <memory>
 #include <limits>
 #include <numeric>
 
@@ -58,7 +59,7 @@ inline std::vector<int> argsort(const std::vector<Type>& v,
 
 // argsort for Eigen array
 template <typename Type, class Compare = std::less<Type>>
-inline std::vector<int> argsort(const Eigen::ArrayX<Type>& v,
+inline std::vector<int> argsort(const typename Eigen::ArrayX<Type>& v,
                                 Compare comp = Compare()) {
   return argsort(&v[0], v.size(), comp);
 }

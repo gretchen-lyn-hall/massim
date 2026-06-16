@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 4.0)
 
+# For debugging Github Actions compilation
+function(print_all_variables)
+  message(STATUS "CMake Variables:")
+  get_cmake_property(_variableNames VARIABLES)
+  list(SORT _variableNames)
+  foreach (_variableName ${_variableNames})
+    message(STATUS "${_variableName}=${${_variableName}}")
+  endforeach()
+endfunction()
+
 if (CMAKE_HOST_APPLE)  
  #set(COMMON_COMPILE_OPTIONS -arch arm64)
  #set(COMMON_LINK_OPTIONS -arch arm64)
@@ -24,15 +34,6 @@ set(PYBIND11_FINDPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
 
 
-# For debugging Github Actions compilation
-function(print_all_variables)
-  message(STATUS "CMake Variables:")
-  get_cmake_property(_variableNames VARIABLES)
-  list(SORT _variableNames)
-  foreach (_variableName ${_variableNames})
-    message(STATUS "${_variableName}=${${_variableName}}")
-  endforeach()
-endfunction()
 
 
 
@@ -44,12 +45,14 @@ endfunction()
 ## Building the C++ Library - 'cmassim'
 file(GLOB SOURCES "src/cpp/*.cpp")
 
+
 # We can use either version, but cmake doesn't think they are
 # compatible.
-find_package (Eigen3 3 NO_MODULE)
-if (NOT ${Eigen3_FOUND} EQUAL 1)
-  find_package (Eigen3 5 REQUIRED NO_MODULE)
-endif()
+set(CMAKE_MODULE_PATH  "${CMAKE_SOURCE_DIR}/eigen/cmake" ${CMAKE_MODULE_PATH})
+add_subdirectory("eigen/" EXCLUDE_FROM_ALL)
+
+find_package (Eigen3 3.4 MODULE)
+print_all_variables()
   
 
 add_library(cmassim STATIC ${SOURCES})
@@ -58,7 +61,7 @@ set_property(TARGET cmassim PROPERTY CXX_STANDARD 23)
 target_compile_options(cmassim PUBLIC ${COMMON_COMPILE_OPTIONS})
 target_link_libraries (cmassim Eigen3::Eigen ${COMMON_LINK_OPTIONS}) 
 
-print_all_variables()
+#print_all_variables()
 # Install the dyl
 install(
   TARGETS cmassim
