@@ -55,7 +55,7 @@ find_package (Eigen3 3.4 MODULE)
 print_all_variables()
   
 
-add_library(cmassim STATIC ${SOURCES})
+add_library(cmassim SHARED ${SOURCES})
 target_include_directories(cmassim PRIVATE)
 set_property(TARGET cmassim PROPERTY CXX_STANDARD 23)
 target_compile_options(cmassim PUBLIC ${COMMON_COMPILE_OPTIONS})
