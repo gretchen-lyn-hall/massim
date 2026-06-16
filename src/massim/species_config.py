@@ -31,7 +31,8 @@ CIA_DB = "WHOI_CIA_DB_2016_11_21.parquet"
 
 
 def quick_compas(n_species, n_samples, n_grads, A0 = 100,
-                 mode=None, beta_div=1, eq_major=0, sample_method="grid",
+                 mode=None, beta_div=1, eq_major=0, clump=1,
+                 sample_method="grid",
                  min_bound=0, max_bound=100,
                  species_name="species",
                  sampler_name="sampler"):
@@ -102,6 +103,7 @@ def quick_compas(n_species, n_samples, n_grads, A0 = 100,
     grads = [f"gradient_{i}" for i in range(1, n_grads+1)]
     min_bound = gradify(min_bound, "min_bound")
     max_bound = gradify(max_bound, "max_bound")
+    clump = gradify(clump, "clump")
 
     if not isinstance(n_samples, int):
         if sample_method != "grid":
@@ -120,7 +122,8 @@ def quick_compas(n_species, n_samples, n_grads, A0 = 100,
                                           A0=A0,
                                           mode=mode,
                                           beta_div=beta_div,
-                                          eq_major=eq_major)
+                                          eq_major=eq_major,
+                                          clump=clump)
     match (sample_method):
         case "random":
             samp = RandomSampler(sampler_name, n_samples);

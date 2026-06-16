@@ -4,7 +4,8 @@
 #include <cassert>
 #include "common.h"
 #include <vector>
-#include <flat_map>
+// #include <flat_map>
+#include "flat_map.h"
 #include <unordered_set>
 
 
@@ -54,7 +55,7 @@ class MassTracker {
   // Continuously track occurrences of particular mass differences (i.e.
   // "transformations") occurring in an updating list of masses.
 
-    std::flat_map<double, size_t> m_masses;
+    stdext::flat_map<double, size_t> m_masses;
     // This is where using a boost::bimap would be useful!
     std::unordered_map<size_t, double> m_mass_ids;
     TransformMassMode m_mode;
@@ -71,8 +72,8 @@ class MassTracker {
   size_t m_total {};
 
 public:
-  using mass_iter_t = std::flat_map<double, size_t>::iterator;
-  using const_mass_iter_t = std::flat_map<double, size_t>::const_iterator;
+  using mass_iter_t = stdext::flat_map<double, size_t>::iterator;
+  using const_mass_iter_t = stdext::flat_map<double, size_t>::const_iterator;
     // Type for tracking individial transforms, of type <xfrm_id, src_id, dst_id>
     using applications_t = std::vector<std::tuple<size_t, size_t, size_t>>;
   
