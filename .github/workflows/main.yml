@@ -48,16 +48,14 @@ jobs:
           # Unfortunately, igraph doesn't build on free threaded, so
           # exclude that.
           CIBW_BUILD: "cp3??-*"
-          # CIBW_ARCHS_LINUX: "x86_64 aarch64"
-          #CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
-          # CIBW_BEFORE_ALL_LINUX: "yum install -y eigen3-devel"
-                    
+          # Don't build for x86 macs
           CIBW_ARCHS_MACOS: "arm64"
+          # Don't build for 32-bit windows. MASSIM builds OK, but
+          # matplotlib build fails during test.
+          CIBW_SKIP: "*-win32"
           # Optional: Run tests inside the wheels before finalizing
           CIBW_TEST_REQUIRES: "pytest"
           CIBW_TEST_COMMAND: "pytest {project}/tests"
-          # Disable repair for now
-          CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""
 
       - uses: actions/upload-artifact@v7
         with:
