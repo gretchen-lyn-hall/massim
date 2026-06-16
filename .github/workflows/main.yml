@@ -36,11 +36,11 @@ jobs:
           #ubuntu: |
           #  apt: libeigen3-dev
           macos: |
-            brew: eigen libomp
-          windows: |
-            github:
-              - path: eigenteam/eigen-git-mirror
-                ref: 3.3.7
+            brew: libomp
+          #windows: |
+          #  github:
+          #    - path: eigenteam/eigen-git-mirror
+          #      ref: 3.3.7
 
       # Used to host cibuildwheel
       - uses: actions/setup-python@v6
