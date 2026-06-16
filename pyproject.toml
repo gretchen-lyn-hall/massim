@@ -43,3 +43,6 @@ name = "testpypi"
 url = "https://test.pypi.org/simple/"
 publish-url = "https://test.pypi.org/legacy/"
 explicit = true
+
+[tool.cibuildwheel.environment]
+MACOSX_DEPLOYMENT_TARGET = "15.0"
