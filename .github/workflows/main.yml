@@ -55,7 +55,7 @@ jobs:
           # Configuration for compilation targets
           # Unfortunately, igraph doesn't build on free threaded, so
           # exclude that.
-          #CIBW_BUILD: "cp3??-*"
+          CIBW_BUILD: "cp3??-*"
           # CIBW_ARCHS_LINUX: "x86_64 aarch64"
           #CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
           # CIBW_BEFORE_ALL_LINUX: "yum install -y eigen3-devel"
