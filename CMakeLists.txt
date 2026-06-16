@@ -43,7 +43,15 @@ endfunction()
 
 ## Building the C++ Library - 'cmassim'
 file(GLOB SOURCES "src/cpp/*.cpp")
-find_package (Eigen3 5 REQUIRED NO_MODULE)
+
+# We can use either version, but cmake doesn't think they are
+# compatible.
+find_package (Eigen3 3.3 NO_MODULE)
+if (NOT DEFINED Eigen_INCLUDE_DIRS)
+  find_package (Eigen3 5 REQUIRED NO_MODULE)
+endif()
+  
+
 add_library(cmassim STATIC ${SOURCES})
 target_include_directories(cmassim PRIVATE)
 set_property(TARGET cmassim PROPERTY CXX_STANDARD 23)
