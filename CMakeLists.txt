@@ -46,8 +46,8 @@ file(GLOB SOURCES "src/cpp/*.cpp")
 
 # We can use either version, but cmake doesn't think they are
 # compatible.
-find_package (Eigen3 3.3 NO_MODULE)
-if (NOT DEFINED Eigen_INCLUDE_DIRS)
+find_package (Eigen3 3 NO_MODULE)
+if (NOT ${Eigen3_FOUND} EQUAL 1)
   find_package (Eigen3 5 REQUIRED NO_MODULE)
 endif()
   
