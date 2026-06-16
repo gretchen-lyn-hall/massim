@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         # matrix setup for Windows, Ubuntu Linux, and macOS
-        os: [ubuntu-latest, ubuntu-24.04-arm] #[macos-26] #[ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest] #[ubuntu-latest, ubuntu-24.04-arm macos-26] #[ubuntu-latest, windows-latest, macos-latest]
         
 
     steps:
@@ -101,8 +101,8 @@ jobs:
     # (gh release create)
     if: github.event_name == 'release' && github.event.action == 'published'
     environment:
-      name: testpypi
-      url: https://test.pypi.org/p/massim
+      name: pypi
+      url: https://pypi.org/p/massim
     permissions:
       id-token: write  # Mandatory for Trusted Publishing (OIDC)
     steps:
@@ -115,5 +115,3 @@ jobs:
 
       - name: Publish package distribution to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
