@@ -67,7 +67,6 @@ install(
 
 
 ## Building the Python bindings: 'massim._core'
-find_package (Eigen3 5 REQUIRED)
 include_directories( ${EIGEN3_INCLUDE_DIRS} )
 pybind11_add_module(_core MODULE src/main.cpp)
 target_include_directories(_core PRIVATE)
