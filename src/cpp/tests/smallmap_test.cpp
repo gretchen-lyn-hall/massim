@@ -4,7 +4,7 @@
 #include <map>
 #include <unordered_map>
 #include <iostream>
-#include <flat_map>
+#include "../flat_map.h"
 #include <format>
 
 #include "../smallmap.h"
@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
   
     
   std::map<double, int> st_map;
-  std::flat_map<double, int> st_hash;
+  stdext::flat_map<double, int> st_hash;
   smallmap<double, int> my_map(N_REPS);
 
 
