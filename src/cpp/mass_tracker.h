@@ -5,6 +5,10 @@
 #include "common.h"
 #include <vector>
 // #include <flat_map>
+// Here we use a reference implementation of flat_map.
+// std::flat_map is available on more modern C++ compilers, but not
+// on all github workflows (looking at you, 'manylinux'!)
+// We could also use std::map, but flat_map is many times faster.
 #include "flat_map.h"
 #include <unordered_set>
 

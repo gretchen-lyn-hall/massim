@@ -23,6 +23,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Update submodules
+        run: |
+          git submodule init --recursive
+          git submodule update --recursive --remote
+
       - name: Install dependencies
         uses: jrl-umi3218/github-actions/install-dependencies@master
         with:
