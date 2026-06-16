@@ -4,17 +4,20 @@
 #include <cassert>
 #include "common.h"
 #include <vector>
+#include <unordered_set>
+
 // #include <flat_map>
 // Here we use a reference implementation of flat_map.
 // std::flat_map is available on more modern C++ compilers, but not
 // on all github workflows (looking at you, 'manylinux'!)
 // We could also use std::map, but flat_map is many times faster.
 #include "flat_map.h"
-#include <unordered_set>
+#include <map>
 
+template <typename T, typename U, typename ...Args>
+using flat_map = stdext::flat_map<T, U, Args...>;
 
 namespace massim {
-
 
 enum class TransformMassMode { MODE_STRICT = 0, MODE_MODERATE = 1, MODE_LAX = 2 };
 
@@ -59,7 +62,7 @@ class MassTracker {
   // Continuously track occurrences of particular mass differences (i.e.
   // "transformations") occurring in an updating list of masses.
 
-    stdext::flat_map<double, size_t> m_masses;
+    flat_map<double, size_t> m_masses;
     // This is where using a boost::bimap would be useful!
     std::unordered_map<size_t, double> m_mass_ids;
     TransformMassMode m_mode;
@@ -76,8 +79,8 @@ class MassTracker {
   size_t m_total {};
 
 public:
-  using mass_iter_t = stdext::flat_map<double, size_t>::iterator;
-  using const_mass_iter_t = stdext::flat_map<double, size_t>::const_iterator;
+  using mass_iter_t = flat_map<double, size_t>::iterator;
+  using const_mass_iter_t = flat_map<double, size_t>::const_iterator;
     // Type for tracking individial transforms, of type <xfrm_id, src_id, dst_id>
     using applications_t = std::vector<std::tuple<size_t, size_t, size_t>>;
   
@@ -173,7 +176,7 @@ public:
     if (mass_id < 0) {
       new_id = m_masses.size();
     } else {
-      if (m_mass_ids.contains(new_id)) {
+      if (m_mass_ids.contains(mass_id)) {
         throw std::runtime_error("Mass id already exists");
       }
       new_id = mass_id;
