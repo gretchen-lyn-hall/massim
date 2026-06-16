@@ -113,7 +113,7 @@ public:
     }
 
     ArrayType float_masses(int_masses.size());
-    for (ssize_t mass_id = 0; mass_id < float_masses.size(); ++mass_id) {
+    for (size_t mass_id = 0; mass_id < float_masses.size(); ++mass_id) {
       float_masses(mass_id) = int_masses[mass_id] * m_tolerance;
     }
 

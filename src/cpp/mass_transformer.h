@@ -13,7 +13,7 @@
 namespace massim {
 
 
-enum class PickMassMode {
+enum class PickMassMode : int {
   PICK_BY_MASS = 0,
   PICK_BY_FREQ = 1,
   PICK_BY_WEIGHT = 2

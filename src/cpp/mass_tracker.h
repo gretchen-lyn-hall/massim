@@ -19,7 +19,7 @@ using flat_map = stdext::flat_map<T, U, Args...>;
 
 namespace massim {
 
-enum class TransformMassMode { MODE_STRICT = 0, MODE_MODERATE = 1, MODE_LAX = 2 };
+enum class TransformMassMode :int { MODE_STRICT = 0, MODE_MODERATE = 1, MODE_LAX = 2 };
 
 // Source - https://stackoverflow.com/a/9729747
 // Posted by Kerrek SB, modified by community. See post 'Timeline' for change history

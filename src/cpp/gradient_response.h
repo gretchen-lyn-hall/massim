@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "common.h"
+#include <memory>
 #include "distribution.h"
 #include "rng.h"
 // #include <omp.h>

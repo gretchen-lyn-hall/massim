@@ -28,19 +28,11 @@ jobs:
           git submodule update --init --recursive
           git submodule update --recursive --remote
 
-      - name: Install dependencies
-        uses: jrl-umi3218/github-actions/install-dependencies@master
-        with:
-          compiler: clang
-          build-type: ${{ matrix.build-type }}
-          #ubuntu: |
-          #  apt: libeigen3-dev
-          macos: |
-            brew: libomp
-          #windows: |
-          #  github:
-          #    - path: eigenteam/eigen-git-mirror
-          #      ref: 3.3.7
+      - name: Install libomp (mac only)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install libomp
+          echo "OpenMP_ROOT=$(brew --prefix libomp)" >> $GITHUB_ENV
 
       # Used to host cibuildwheel
       - uses: actions/setup-python@v6

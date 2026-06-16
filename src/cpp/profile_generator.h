@@ -130,6 +130,7 @@ class ProfileGenerator {
   IntArrayType counts() const { return m_tracker.counts();}
 
   std::map<std::string, size_t> stats() const {
+    
     std::map<std::string, size_t> result;
     result["break_mass"] = m_stats_break_mass;
     result["break_intensity"] = m_stats_break_intens;
