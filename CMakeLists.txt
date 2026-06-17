@@ -52,8 +52,6 @@ set(CMAKE_MODULE_PATH  "${CMAKE_SOURCE_DIR}/eigen/cmake" ${CMAKE_MODULE_PATH})
 add_subdirectory("eigen/" EXCLUDE_FROM_ALL)
 
 find_package (Eigen3 3.4 MODULE)
-print_all_variables()
-  
 
 add_library(cmassim STATIC ${SOURCES})
 set_target_properties(cmassim PROPERTIES POSITION_INDEPENDENT_CODE ON)

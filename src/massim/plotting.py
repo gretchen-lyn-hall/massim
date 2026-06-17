@@ -22,7 +22,6 @@ def plot_spectrum(res: ExperimentResult, samp_id: int,  ax=None, log=False, alph
     return ax
 
 
-
 def plot_spectra(res: ExperimentResult, log=False, auto_lim=True):
     fig, ax = plt.subplots()
     masses = res.species_info.mass
